@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#2563eb">
+  <meta name="description" content="Explore Quranic words, their roots and Urdu meanings. Save and study your own flashcards.">
+  <title>Quranic Words · Read, understand, remember</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400&family=Scheherazade+New:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./src/style.css">
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script type="module" src="./src/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#read"><span class="brand-icon" aria-hidden="true">ق</span><span>Quranic Words<small>Read · Understand · Remember</small></span></a>
+    <nav aria-label="Main navigation">
+      <a href="#read" data-page="read">Read</a><a href="#dictionary" data-page="dictionary">Dictionary</a><a href="#cards" data-page="cards">Cards</a><a href="#study" data-page="study">Study</a>
+    </nav>
+    <button id="account" class="button secondary">Sign in with Google</button>
+  </header>
+  <main>
+    <div id="startup" class="empty" role="status">Loading the dictionary…</div>
+    <section id="read" class="page" hidden>
+      <form id="verse-form" class="searchbar"><label for="reference">Surah : Ayah</label><div class="search-input"><input id="reference" placeholder="e.g. 2:255" value="1:1" autocomplete="off" inputmode="text" required><button class="button" id="go">Go <span aria-hidden="true">→</span></button></div><p class="muted">Try <button type="button" class="text-button example" data-ref="1:1">1:1</button> or <button type="button" class="text-button example" data-ref="2:255">2:255</button></p></form>
+      <div class="verse-panel"><div class="panel-caption"><span id="verse-label">Your verse</span><div><button id="prev-verse" class="icon-button" aria-label="Previous verse">←</button><button id="next-verse" class="icon-button" aria-label="Next verse">→</button></div></div><p id="verse-status" class="muted" role="status"></p><div id="verse-words" class="verse-words" dir="rtl" lang="ar"></div><p class="verse-hint">Select a word to explore its meaning and root.</p></div>
+      <div id="reader-card" class="reader-card"><div class="empty"><span class="empty-symbol" aria-hidden="true">✧</span><h2>A little curiosity goes a long way.</h2><p>Select a word above to see its Urdu meaning, forms and root.</p></div></div>
+    </section>
+    <section id="dictionary" class="page" hidden><div class="section-heading"><div><p class="eyebrow">THE WORD INDEX</p><h1>A dictionary to return to.</h1><p class="muted" id="dictionary-count"></p></div></div><div id="alphabet" class="alphabet" dir="rtl" aria-label="Filter by Arabic letter"></div><div id="toc" dir="rtl"></div></section>
+    <section id="cards" class="page" hidden><div class="section-heading"><div><p class="eyebrow">YOUR PERSONAL COLLECTION</p><h1>Words worth remembering.</h1><p class="muted">Your saved words and review progress, kept in your Google Drive.</p></div><a href="#study" class="button">Start studying →</a></div><div class="auth-gate"></div><div class="private-content" hidden><div class="collection-toolbar"><p id="cards-count"></p><button id="sync" class="button secondary">Sync with Drive</button></div><p class="sync-status muted" role="status"></p><label class="sr-only" for="cards-search">Search saved cards</label><input id="cards-search" class="filter-input" placeholder="Find a saved word…" dir="auto"><div id="cards-list" class="cards-grid"></div></div></section>
+    <section id="study" class="page" hidden><div class="section-heading"><div><p class="eyebrow">A SMALL DAILY PRACTICE</p><h1>Let the words stay with you.</h1><p class="muted">Recall the meaning, reveal the answer, then choose how it felt.</p></div></div><div class="auth-gate"></div><div class="private-content" hidden><p class="sync-status muted" role="status"></p><div id="study-area"></div></div></section>
+    <section id="privacy" class="page" hidden><h1>Your words. Your data.</h1><div class="prose"><p>Reading and dictionary lookup do not require an account. Your last verse is stored in this browser.</p><p>Google sign-in requests your basic profile and access to this app’s private Google Drive app-data folder. Only saved entry IDs, review schedules and removal records are stored there. The app cannot read your other Drive files.</p><p>A copy of your cards is kept in this browser for recovering unsynced changes. Sign-out hides your cards; “Clear local card data” removes this browser’s cached copies. Access tokens stay in memory and are discarded on sign-out or reload.</p><p>Google receives authentication and Drive requests; Al Quran Cloud receives verse lookup requests; Google Fonts receives font requests. There is no analytics or application backend.</p><p>To remove cloud data, manage this app under Google Drive settings → Manage apps → Delete hidden app data, then revoke access in your Google account’s connected apps. Clearing local data afterward prevents cached cards from being restored.</p><button id="clear-local" class="button secondary">Clear local card data</button></div></section>
+  </main>
+  <footer><span>Built for a thoughtful reading practice.</span><a href="#privacy">Privacy &amp; data</a><a href="https://alquran.cloud" target="_blank" rel="noopener">Verses by Al Quran Cloud ↗</a></footer>
+  <dialog id="detail-dialog" aria-label="Dictionary entry"><button id="close-dialog" class="icon-button dialog-close" aria-label="Close dictionary card">×</button><div id="dialog-card"></div></dialog>
+  <div id="notification" class="notification" role="status" hidden></div>
+  <noscript>This dictionary requires JavaScript to load verses and word cards.</noscript>
+</body>
+</html>
+

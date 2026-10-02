@@ -1,0 +1,13 @@
+{
+  "name": "quranic-words-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "npm run build && node scripts/serve.mjs",
+    "preview": "node scripts/serve.mjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "dependencies": { "marked": "18.0.5" },
+  "engines": { "node": ">=20" }
+}
