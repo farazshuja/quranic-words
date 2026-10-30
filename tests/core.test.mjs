@@ -4,7 +4,8 @@ import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {alignWords, parseReference, verseReferences, schedule, mergeDecks} from '../src/core.js';
+import {alignWords, parseReference, verseReferences, schedule, mergeDecks, searchToc, normalizeWithSpans} from '../src/core.js';
+import {syncData} from '../scripts/sync-data.mjs';
 
 test('meaning references recognize verses and ranges while rejecting invalid Ayahs', () => {
   const counts = {2:286,37:182};
@@ -12,6 +13,14 @@ test('meaning references recognize verses and ranges while rejecting invalid Aya
   const references = verseReferences(text,counts);
   assert.deepEqual(references.map(r=>[r.label,r.reference]), [['37:6-7','37:6'],['2:255','2:255'],['37:6–7','37:6']]);
   for (const r of references) assert.equal(text.slice(r.index,r.index+r.label.length),r.label);
+});
+
+test('TOC search ignores Arabic marks and reports original word offsets', () => {
+  const rows = {alif:[{id:'alif-entry-1',word:'أَللّٰه',children:[{id:'alif-entry-2',word:'إِلٰه'}]}]};
+  assert.deepEqual(searchToc(rows,'له').map(({id, start, end})=>({id,start,end})),[
+    {id:'alif-entry-1',start:3,end:7},{id:'alif-entry-2',start:2,end:5}
+  ]);
+  assert.equal(normalizeWithSpans('اَل').normalized,'ال');
 });
 
 test('verse references reject malformed and out-of-range input', () => {
@@ -51,6 +60,7 @@ test('newer tombstones survive merges with stale saved cards', () => {
   assert.deepEqual(mergeDecks({'bad':{due:0,updatedAt:1},'alif-entry-2':{due:'invalid',updatedAt:1}}),{});
 });
 test('standalone build preserves public inputs, excludes English, covers every entry and linked root', async () => {
+  await syncData({optional: true});
   const app = fileURLToPath(new URL('../',import.meta.url));
   const masters = ['entries','qwords'].map(name => new URL(`../data/${name}.json`,import.meta.url));
   const hash = file => createHash('sha256').update(readFileSync(file)).digest('hex');

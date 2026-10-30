@@ -2,6 +2,9 @@ import {readFile, writeFile, mkdir, cp} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import {alphabet, normalize} from '../src/core.js';
+import {syncData} from './sync-data.mjs';
+
+await syncData({optional: true});
 
 const app = fileURLToPath(new URL('../', import.meta.url));
 const master = path.resolve(app, 'data');

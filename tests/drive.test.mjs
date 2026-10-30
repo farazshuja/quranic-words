@@ -45,6 +45,21 @@ test('Drive sync merges remote reviews and local removals without resurrecting c
   assert.ok(values.has('qw.deck.account-a'));
   cloud.signOut(); assert.equal(cloud.authorized,false); assert.deepEqual(cloud.deck,{}); assert.equal(cloud.token,null);
 });
+test('Drive sync restores the latest verse reference across devices', async()=>{
+  const requests=[];
+  const {cloud}=setup(async(url,options)=>{
+    requests.push({url,options});
+    if(url.includes('upload/'))return response({id:'file-1'});
+    if(url.includes('alt=media'))return response({version:1,cards:{},lastVerse:'2:255',lastVerseUpdatedAt:10});
+    return response({files:[{id:'file-1',createdTime:'2026'}]});
+  });
+  await cloud.sync();
+  assert.equal(cloud.lastVerse,'2:255');
+  cloud.setLastVerse('3:4');
+  await new Promise(resolve=>setImmediate(resolve));
+  const upload=requests.filter(r=>r.options.method==='PATCH').at(-1);
+  assert.equal(JSON.parse(upload.options.body).lastVerse,'3:4');
+});
 test('new Drive card file is created atomically in appDataFolder', async()=>{
   let upload;
   const {cloud}=setup(async(url,options)=>{

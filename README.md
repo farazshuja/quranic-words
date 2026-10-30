@@ -4,6 +4,14 @@ A static, responsive Quran reader and Urdu dictionary with Google Drive flashcar
 
 ## Run locally
 
+Keep the two repositories as siblings, each with its own `.git` directory:
+
+```text
+quranic-usage-text/
+  quranic-usage-text/
+  quranic-words/
+```
+
 Use Node.js 20 or newer (24 recommended):
 
 ```powershell
@@ -14,7 +22,11 @@ npm run dev
 
 Open http://localhost:4173. `npm run build` generates `dist`; `npm run preview` serves an existing build. `npm test` runs data, verse alignment, review scheduling and mocked Drive integration checks.
 
-The build **only reads** the sanitized `data/entries.json` and `data/qwords.json` snapshots. It generates a complete root-grouped TOC, public entries, a verse-count manifest, and one word-mapping file per Surah. Public entries have an explicit field allowlist: `id`, `word`, `markdown_ur`, `nouns`, `verbs`, `root`, and generated `rootId`. English `markdown`, usage data and master flashcards are never copied. Generated output is ignored by Git.
+Local builds automatically refresh `data/entries.json` and `data/qwords.json` from the sibling `../quranic-usage-text` repository using its existing `scripts/export-web-data.mjs` exporter. You can also run `npm run sync-data` explicitly. The exporter only reads the source repository and writes sanitized snapshots into this repository; source files remain unchanged. If the sibling repository is absent (as on GitHub Actions), builds use the committed snapshots. If it is present but its export fails, the build fails so stale data is not silently published.
+
+The build reads those sanitized snapshots and generates a complete root-grouped TOC, public entries, a verse-count manifest, and one word-mapping file per Surah. Public entries have an explicit field allowlist: `id`, `word`, `markdown_ur`, `nouns`, `verbs`, `root`, and generated `rootId`. English `markdown`, usage data and master flashcards are never copied. Generated output is ignored by Git.
+
+After updating source data, run `npm run build` and `npm test` here, then commit and push this repository's code and refreshed `data` snapshots. Run Git commands from the appropriate sibling folder to push each repository independently. The source repository's older export instructions use the previous nested layout; from that repository, the new manual export command is `node scripts/export-web-data.mjs ../quranic-words/data`.
 
 ## GitHub Pages
 
@@ -43,7 +55,7 @@ Google tokens remain in memory. After a page reload or token expiry, users selec
 
 Hearts toggle saved words and root entries. Cards shows all saved entries with their due dates and last rating; clicking an entry opens the same dictionary card. Study shows due cards, initially hides the answer, then offers **Easy / Medium / Difficult / Failed**. Failed returns in 10 minutes; other choices increase intervals with an ease factor. This is an Anki-style scheduler, not Anki's exact SM-2 or FSRS implementation. Every rating persists grade, interval, due timestamp, ease, review count and lapse count.
 
-The app stores a versioned `quranic-words-cards-v1.json` in the user's private Drive app-data folder, with an account-specific local browser backup. Sync reads remote records first and merges by per-card timestamp. Removed cards remain as tombstones to avoid resurrection by stale local caches. Changes made during a sync get another sync pass. Sync retries on reconnection and can be triggered manually. The application folder uses a small amount of the user's Drive storage and cannot access their ordinary files.
+The app stores a versioned `quranic-words-cards-v1.json` in the user's private Drive app-data folder, with an account-specific local browser backup. The file includes the last opened verse reference for restoring reading progress across signed-in devices. Sync reads remote records first and merges by per-card timestamp. Removed cards remain as tombstones to avoid resurrection by stale local caches. Changes made during a sync get another sync pass. Sync retries on reconnection and can be triggered manually. The application folder uses a small amount of the user's Drive storage and cannot access their ordinary files.
 
 Use manual sync when switching devices. This lightweight file-based approach uses last-write-wins timestamps, assumes reasonably accurate device clocks, and cannot guarantee transactional writes for simultaneous offline edits on multiple devices or tabs. Browse the local privacy page for clearing local caches and deleting hidden cloud data. Keep the page open until a failed save is retried if browser storage is unavailable. Dictionary content itself is never stored in Drive.
 
@@ -51,7 +63,7 @@ Use manual sync when switching devices. This lightweight file-based approach use
 
 Verses come from [Al Quran Cloud's Ayah endpoint](https://alquran.cloud/api), using the `quran-uthmani` edition. Dictionary IDs come exclusively from the corresponding source `qwords` verse: the app does not guess entries for unmapped words. A missing/broken ID shows **No word found**. Orthographic differences are handled by word position when counts match. Initial Bismillah tokens are removed for alignment when the API includes four extra tokens on a Surah's first verse (except Surahs 1 and 9). On other count mismatches, only a conservative normalized subsequence is mapped and the UI shows an alignment notice. This does not attempt to resolve every edition/tokenization discrepancy.
 
-The last successfully fetched verse and its reference are stored locally and automatically restored. That cached verse is available if the API is temporarily unavailable; other uncached verses require connectivity. Fonts and Google sign-in also require network access. Urdu Markdown is rendered with raw HTML escaped, allowed elements sanitized and link protocols restricted. Entries without `markdown_ur` show an unavailable-explanation message; English content is not substituted.
+The last successfully fetched verse and its reference are stored locally and automatically restored. For signed-in users, the last opened reference is also synced with the flashcards so it can be restored on another device. That cached verse is available if the API is temporarily unavailable; other uncached verses require connectivity. Fonts and Google sign-in also require network access. Urdu Markdown is rendered with raw HTML escaped, allowed elements sanitized and link protocols restricted. Entries without `markdown_ur` show an unavailable-explanation message; English content is not substituted.
 
 Verse references inside Urdu explanations are clickable and open the verse in the reader, filling the search box automatically. A range such as `37:6-7` opens its first Ayah (`37:6`). References are checked against the Quran's Surah/Ayah counts before becoming links.
 

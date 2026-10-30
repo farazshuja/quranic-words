@@ -4,6 +4,51 @@ export function normalize(text = '') {
   return text.normalize('NFKD').replace(/[\p{M}\u0640\u06D6-\u06ED]/gu, '').replace(/[أإآٱ]/g, 'ا').replace(/ى/g, 'ي').replace(/[^\p{L}]/gu, '');
 }
 
+// Keep offsets into the original string so search highlights preserve Arabic marks.
+export function normalizeWithSpans(text = '') {
+  let normalized = '';
+  const spans = [];
+  let offset = 0;
+  for (const character of text) {
+    const start = offset;
+    offset += character.length;
+    const base = character.normalize('NFD').replace(/\p{M}|\u0640/gu, '');
+    if (!base) {
+      if (spans.length) spans[spans.length - 1].end = offset;
+      continue;
+    }
+    for (const letter of base) {
+      normalized += letter;
+      for (let i = 0; i < letter.length; i++) spans.push({start, end:offset});
+    }
+  }
+  return {normalized, spans};
+}
+
+export function searchToc(rows, query) {
+  const needle = normalizeWithSpans(query).normalized;
+  if (!needle) return [];
+  const matches = [];
+  const add = (item, letter, familyIndex, wordIndex, word) => {
+    const indexed = normalizeWithSpans(word);
+    let at = indexed.normalized.indexOf(needle);
+    while (at !== -1) {
+      matches.push({id:item.id, letter, familyIndex, wordIndex, start:indexed.spans[at].start,
+        end:indexed.spans[at + needle.length - 1].end});
+      at = indexed.normalized.indexOf(needle, at + needle.length);
+    }
+  };
+  const sections = Array.isArray(rows) ? [['', rows]] : Object.entries(rows || {});
+  sections.forEach(([letter, families]) => families.forEach((item, familyIndex) => {
+    add(item, letter, familyIndex, 0, item.word);
+    (item.children || []).forEach((child, index) => add(child, letter, familyIndex, index + 1, child.word));
+  }));
+  return matches;
+}
+
+export const keyboardMap = {"1":"\u0661","!":"\u06e8","2":"\u0662","@":"\u06df","3":"\u0663","#":"\u0654","4":"\u0664","$":"\u0634","5":"\u0665","%":"\u06ec","6":"\u0666","^":"\u0653","7":"\u0667","&":"\u0624","8":"\u0668","*":"\u0630","9":"\u0669","(":"(","0":"\u0660",")":")","-":"\u06ea","_":"\u0640","=":"=","+":"\u06eb","q":"\u0642","Q":"\u0688","w":"\u0648","W":"\u0691","e":"e","E":"\u0639","r":"\u0631","R":"\u0698","t":"\u062a","T":"\u0637","y":"\u064a","Y":"\u0649","u":"\u064f","U":"\u06d2","i":"\u0650","I":"I","o":"\u0652","O":"\u06ba","p":"\u0629","P":"\u067e","[":"\u06e2","{":"\u0671","]":"\u06ed","}":"\u0626","a":"\u064e","A":"\u0627","s":"\u0633","S":"\u0635","d":"\u062f","D":"\u0636","f":"\u0641","F":"\u064b","g":"\u063a","G":"\u06af","h":"\u0647","H":"\u062d","j":"\u062c","J":"J","k":"\u0643","K":"\u064d","l":"\u0644","L":"L",";":"\u06e3",":":"\u06dc","'":"\u0621",'"':"\u06e0","`":"\u0670","~":"\u0651","\\":"\\","|":"|","z":"\u0632","Z":"\u0638","x":"\u062e","X":"X","c":"\u0686","C":"\u0679","v":"\u062b","V":"\u0610","b":"\u0628","B":"\u06be","n":"\u0646","N":"\u064c","m":"\u0645","M":"M",",":"\u060c","<":"\u0625",".":".",">":"\u0623","/":"/","?":"\u061f"," ":" "};
+export const altGrMap = {e:"\u0611",h:"\u06c1",".":"\u06e6"};
+
 export function parseReference(input, surahs) {
   const match = input.trim().match(/^(\d{1,3})\s*:\s*(\d{1,3})$/);
   if (!match) throw new Error('Enter a verse as Surah:Ayah, for example 2:255.');

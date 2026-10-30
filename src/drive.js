@@ -7,7 +7,7 @@ const API = 'https://www.googleapis.com/drive/v3/files';
 export class DriveCards {
   constructor({clientId, storage = localStorage, fetcher = globalThis.fetch.bind(globalThis), onChange = () => {}}) {
     Object.assign(this, {clientId, storage, fetcher, onChange});
-    this.deck = {}; this.user = null; this.token = null; this.expires = 0;
+    this.deck = {}; this.lastVerse = null; this.lastVerseUpdatedAt = 0; this.user = null; this.token = null; this.expires = 0;
     this.ready = false; this.busy = false; this.status = ''; this.generation = 0;
   }
   get authorized() { return this.ready && !!this.token && Date.now() < this.expires; }
@@ -38,6 +38,13 @@ export class DriveCards {
       if (generation !== this.generation) return;
       if (!profile.sub) throw new Error('Google did not return an account identity.');
       this.user = {sub: profile.sub, name: profile.name || profile.email || 'Google account'};
+      try {
+        const savedPosition = JSON.parse(this.storage.getItem(`qw.lastReference.${this.user.sub}`) || 'null');
+        if (typeof savedPosition?.reference === 'string') {
+          this.lastVerse = savedPosition.reference;
+          this.lastVerseUpdatedAt = Number(savedPosition.updatedAt) || 0;
+        }
+      } catch { /* account-specific browser storage is optional */ }
       let cached = {};
       try { cached = JSON.parse(this.storage.getItem(this.cacheKey) || '{}').cards || {}; } catch { /* malformed cache is ignored */ }
       this.deck = mergeDecks(cached); this.ready = true;
@@ -49,7 +56,7 @@ export class DriveCards {
   }
   signOut() {
     this.generation++; this.token = null; this.expires = 0; this.ready = false;
-    this.user = null; this.deck = {}; this.busy = false; this.status = ''; this.emit();
+    this.user = null; this.deck = {}; this.lastVerse = null; this.lastVerseUpdatedAt = 0; this.busy = false; this.status = ''; this.emit();
   }
   async request(url, options = {}) {
     if (!this.token || Date.now() >= this.expires) {
@@ -67,6 +74,14 @@ export class DriveCards {
     if (!this.authorized) throw new Error('Sign in with Google to save or review cards.');
     this.deck[id] = card; this.backup(); this.emit();
     // Changes during an in-flight sync are included by a subsequent pass.
+    this.dirty = true;
+    if (!this.busy) void this.sync();
+  }
+  setLastVerse(reference) {
+    if (!this.authorized || this.lastVerse === reference) return;
+    this.lastVerse = reference;
+    this.lastVerseUpdatedAt = Date.now();
+    try { this.storage.setItem(`qw.lastReference.${this.user.sub}`, JSON.stringify({reference, updatedAt:this.lastVerseUpdatedAt})); } catch { /* Drive remains available. */ }
     this.dirty = true;
     if (!this.busy) void this.sync();
   }
@@ -92,14 +107,20 @@ export class DriveCards {
         const remoteDecks = [];
         for (const file of files) {
           const data = await this.request(`${API}/${encodeURIComponent(file.id)}?alt=media`);
-          if (data.version !== 1 || !data.cards || typeof data.cards !== 'object' || Array.isArray(data.cards))
+          if (data.version !== 1 || !data.cards || typeof data.cards !== 'object' || Array.isArray(data.cards) ||
+              (data.lastVerse !== undefined && typeof data.lastVerse !== 'string') ||
+              (data.lastVerseUpdatedAt !== undefined && !Number.isFinite(data.lastVerseUpdatedAt)))
             throw new Error('The Drive card file has an unsupported format. It has not been overwritten.');
           remoteDecks.push(data.cards);
+          if (typeof data.lastVerse === 'string' && (!this.lastVerse || (data.lastVerseUpdatedAt || 0) > this.lastVerseUpdatedAt)) {
+            this.lastVerse = data.lastVerse;
+            this.lastVerseUpdatedAt = data.lastVerseUpdatedAt || 0;
+          }
         }
         if (generation !== this.generation) return;
         this.deck = mergeDecks(...remoteDecks, this.deck);
         this.backup();
-        const content = JSON.stringify({version:1, cards:this.deck});
+        const content = JSON.stringify({version:1, cards:this.deck, ...(this.lastVerse ? {lastVerse:this.lastVerse, lastVerseUpdatedAt:this.lastVerseUpdatedAt} : {})});
         if (files.length) {
           await this.request(`https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(files[0].id)}?uploadType=media`,
             {method:'PATCH', headers:{'Content-Type':'application/json'}, body:content});
