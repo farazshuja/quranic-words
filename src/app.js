@@ -62,15 +62,15 @@ function heart(id) {
   const saved = cloud?.authorized && cloud.deck[id] && !cloud.deck[id].deleted;
   return `<button class="heart ${saved ? 'saved' : ''}" data-heart="${esc(id)}" aria-pressed="${!!saved}" aria-label="${saved ? 'Remove from' : 'Add to'} flashcards" title="${saved ? 'Remove from flashcards' : 'Save to flashcards'}">${saved ? '♥' : '♡'}</button>`;
 }
-function entryCard(id) {
+function entryCard(id, inDialog = false) {
   const entry = entries.get(id);
   if (!entry) return '<div class="empty"><h2>No word found</h2><p>This word has not been linked to a dictionary entry yet.</p></div>';
   const children = [...entries.values()].filter(e => e.rootId === id && e.id !== id);
   const root = entry.root && entry.root !== entry.word ? `<div class="form-item"><span>Root</span>${entry.rootId ? `<button class="root-link" data-entry="${esc(entry.rootId)}">${esc(entry.root)} ↗</button>` : esc(entry.root)}</div>` : '';
-  return `<article class="entry-card"><header class="entry-header"><div class="entry-heading"><small>DICTIONARY ENTRY</small></div>${children.length ? '<span class="badge">ROOT</span>' : ''}${heart(id)}</header><div class="entry-body"><div class="forms" dir="rtl">${root}${entry.nouns ? `<div class="form-item"><span>Nouns</span>${esc(entry.nouns)}</div>` : ''}${entry.verbs ? `<div class="form-item"><span>Verbs</span>${esc(entry.verbs)}</div>` : ''}</div>${entry.markdown_ur ? `<div class="urdu" lang="ur" dir="rtl">${markdown(entry.markdown_ur)}</div>` : '<p class="muted">An Urdu explanation is not available for this entry yet.</p>'}${children.length ? `<p class="muted">Words from this root</p><div class="related">${children.map(e => `<button class="word-chip" data-entry="${esc(e.id)}">${esc(e.word)}</button>`).join('')}</div>` : ''}</div></article>`;
+  return `<article class="entry-card"><header class="entry-header"><div class="entry-heading"><h2 dir="rtl" lang="ar">${esc(entry.word)}</h2><small>${esc(entry.id)}</small></div>${children.length ? '<span class="badge">ROOT</span>' : ''}${inDialog ? '<button id="close-dialog" class="icon-button card-close" aria-label="Close dictionary card">×</button>' : ''}${heart(id)}</header><div class="entry-body"><div class="forms" dir="rtl">${root}${entry.nouns ? `<div class="form-item"><span>Nouns</span>${esc(entry.nouns)}</div>` : ''}${entry.verbs ? `<div class="form-item"><span>Verbs</span>${esc(entry.verbs)}</div>` : ''}</div>${entry.markdown_ur ? `<div class="urdu" lang="ur" dir="rtl">${markdown(entry.markdown_ur)}</div>` : '<p class="muted">An Urdu explanation is not available for this entry yet.</p>'}${children.length ? `<p class="muted">Words from this root</p><div class="related">${children.map(e => `<button class="word-chip" data-entry="${esc(e.id)}">${esc(e.word)}</button>`).join('')}</div>` : ''}</div></article>`;
 }
 function openEntry(id) {
-  dialogId = id; $('#dialog-card').innerHTML = entryCard(id);
+  dialogId = id; $('#dialog-card').innerHTML = entryCard(id, true);
   if (!$('#detail-dialog').open) $('#detail-dialog').showModal();
   $('#detail-dialog').scrollTop = 0;
 }
@@ -155,7 +155,7 @@ function renderToc() {
     if (!families.length) continue;
     const filtered = tocQuery ? families.map((item, familyIndex) => ({item, familyIndex})).filter(({familyIndex}) => matches.some(match => match.letter === letter && match.familyIndex === familyIndex)) : families.map((item, familyIndex) => ({item, familyIndex}));
     if (!filtered.length) continue;
-    html.push(`<section class="toc-group"><h2 class="toc-letter">${label}</h2><div class="toc-items">${filtered.map(({item, familyIndex}) => `<div class="toc-family ${(item.children?.length || item.word.includes('/')) ? 'root-family' : ''}"><button data-entry="${esc(item.id)}">${highlight(item.word, letter, familyIndex, 0)}</button>${(item.children || []).map((e, index) => `<button data-entry="${esc(e.id)}">${highlight(e.word, letter, familyIndex, index + 1)}</button>`).join('')}</div>`).join('')}</div></section>`);
+    html.push(`<section class="toc-group"><h2 class="toc-letter">${label}</h2><div class="toc-items">${filtered.map(({item, familyIndex}) => `<div class="toc-family ${(item.children?.length || item.word.includes('/')) ? 'root-family' : ''}">${entries.has(item.id) ? `<button data-entry="${esc(item.id)}">${highlight(item.word, letter, familyIndex, 0)}</button>` : `<span class="toc-root-label">${highlight(item.word, letter, familyIndex, 0)}</span>`}${(item.children || []).map((e, index) => `<button data-entry="${esc(e.id)}">${highlight(e.word, letter, familyIndex, index + 1)}</button>`).join('')}</div>`).join('')}</div></section>`);
   }
   $('#toc').innerHTML = html.join('') || `<div class="empty">${tocQuery ? 'No matching dictionary entries.' : 'No dictionary entries for this letter.'}</div>`;
   $('#toc-search-status').textContent = matches.length ? `${tocMatchIndex + 1} / ${matches.length}` : tocQuery ? 'No matches' : '0 / 0';

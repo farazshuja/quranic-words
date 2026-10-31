@@ -81,11 +81,11 @@ test('standalone build preserves public inputs and publishes only explained entr
     assert.equal(e.markdown_ur,original.find(o=>o.id===e.id).markdown_ur || '');
   }
   const toc = JSON.parse(readFileSync(new URL('../dist/data/toc.json',import.meta.url)));
-  const ids = Object.values(toc).flatMap(group => group.flatMap(n=>[n.id,...n.children.map(c=>c.id)]));
+  const ids = Object.values(toc).flatMap(group => group.flatMap(n=>[...(map.has(n.id)?[n.id]:[]),...(n.children||[]).map(c=>c.id)]));
   assert.equal(ids.length,entries.length); assert.equal(new Set(ids).size,entries.length);
   for (const families of Object.values(toc)) for (const family of families) {
-    assert.ok(map.get(family.id)?.markdown_ur.trim());
-    for (const child of family.children) assert.ok(map.get(child.id)?.markdown_ur.trim());
+    assert.ok(map.has(family.id) ? map.get(family.id).markdown_ur.trim() : family.children?.length > 0);
+    for (const child of family.children || []) assert.ok(map.get(child.id)?.markdown_ur.trim());
   }
   const {parseUrdu} = await import('../dist/src/markup.js');
   const rendered = parseUrdu('**رحمت**\n\n<script>alert(1)</script>');

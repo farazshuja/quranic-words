@@ -1,7 +1,7 @@
 import {readFile, writeFile, mkdir, cp} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
-import {alphabet, normalize} from '../src/core.js';
+import {alphabet} from '../src/core.js';
 import {syncData} from './sync-data.mjs';
 
 await syncData({optional: true});
@@ -18,27 +18,42 @@ for (const entry of entries) {
 }
 // The web dictionary and TOC contain only entries with a real Urdu explanation.
 const explainedEntries = entries.filter(e => typeof e.markdown_ur === 'string' && e.markdown_ur.trim());
-const roots = new Map(explainedEntries.filter(e => e.word.includes('/')).map(e => [normalize(e.word), e.id]));
+const explainedIds = new Set(explainedEntries.map(e => e.id));
+const roots = new Map(entries.filter(e => e.word.includes('/')).map(e => [`${e.id.split('-')[0]}:${e.word.trim()}`, e]));
 // Explicit allowlist prevents English markdown or other master fields leaking.
 const publicEntries = explainedEntries.map(({id, word, markdown_ur, nouns = '', verbs = '', root = ''}) =>
-  ({id, word, markdown_ur, nouns, verbs, root, rootId: root ? roots.get(normalize(root)) || null : null}));
+  ({id, word, markdown_ur, nouns, verbs, root, rootId: root && explainedIds.has(roots.get(`${id.split('-')[0]}:${root.trim()}`)?.id) ? roots.get(`${id.split('-')[0]}:${root.trim()}`).id : null}));
 const toc = Object.fromEntries(alphabet.map(([id]) => [id, []]));
 const nodes = new Map();
-const entryMap = new Map(publicEntries.map(e => [e.id, e]));
-for (const e of publicEntries) {
-  const node = {id: e.id, word: e.word, children: []};
-  nodes.set(e.id, node);
-}
-for (const e of publicEntries) {
-  let parent = e;
-  const seen = new Set([e.id]);
-  while (parent.rootId && !seen.has(parent.rootId)) {
-    seen.add(parent.rootId);
-    parent = entryMap.get(parent.rootId);
+const explainedById = new Map(explainedEntries.map(e => [e.id, e]));
+// Match the desktop TOC: roots own direct children from the same letter section;
+// unexplained words are excluded, while a root label remains as a group heading
+// when it has at least one explained child.
+for (const entry of entries) {
+  const section = entry.id.split('-')[0];
+  if (!toc[section]) continue;
+  if (entry.word.includes('/')) {
+    if (nodes.has(entry.id)) continue;
+    const node = {id:entry.id, word:entry.word, children:[]};
+    nodes.set(entry.id, node);
+    if (explainedIds.has(entry.id)) toc[section].push(node);
+    continue;
   }
-  if (parent.id !== e.id) nodes.get(parent.id).children.push({id: e.id, word: e.word});
-  else (toc[e.id.split('-')[0]] ||= []).push(nodes.get(e.id));
+  if (!explainedById.has(entry.id)) continue;
+  const root = entry.root?.trim() ? roots.get(`${section}:${entry.root.trim()}`) : null;
+  if (root) {
+    let node = nodes.get(root.id);
+    if (!node) {
+      node = {id:root.id, word:root.word, children:[]};
+      nodes.set(root.id, node);
+      toc[section].push(node);
+    } else if (!toc[section].includes(node)) toc[section].push(node);
+    node.children.push({id:entry.id, word:entry.word});
+  } else {
+    toc[section].push({id:entry.id, word:entry.word});
+  }
 }
+for (const section of Object.keys(toc)) toc[section] = toc[section].filter(node => explainedIds.has(node.id) || node.children?.length);
 await mkdir(path.join(out, 'data/verses'), {recursive: true});
 await mkdir(path.join(out, 'vendor'), {recursive: true});
 await cp(path.join(app, 'src'), path.join(out, 'src'), {recursive: true});
