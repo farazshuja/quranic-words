@@ -16,9 +16,11 @@ for (const entry of entries) {
   if (Object.keys(entry).some(key => !allowedEntryFields.has(key)))
     throw new Error('Public dictionary data contains an unexpected field. Export sanitized data from the private repository first.');
 }
-const roots = new Map(entries.filter(e => e.word.includes('/')).map(e => [normalize(e.word), e.id]));
+// The web dictionary and TOC contain only entries with a real Urdu explanation.
+const explainedEntries = entries.filter(e => typeof e.markdown_ur === 'string' && e.markdown_ur.trim());
+const roots = new Map(explainedEntries.filter(e => e.word.includes('/')).map(e => [normalize(e.word), e.id]));
 // Explicit allowlist prevents English markdown or other master fields leaking.
-const publicEntries = entries.map(({id, word, markdown_ur = '', nouns = '', verbs = '', root = ''}) =>
+const publicEntries = explainedEntries.map(({id, word, markdown_ur, nouns = '', verbs = '', root = ''}) =>
   ({id, word, markdown_ur, nouns, verbs, root, rootId: root ? roots.get(normalize(root)) || null : null}));
 const toc = Object.fromEntries(alphabet.map(([id]) => [id, []]));
 const nodes = new Map();
@@ -50,7 +52,7 @@ await writeFile(path.join(out, 'config.json'), JSON.stringify(config));
 await writeFile(path.join(out, '.nojekyll'), '');
 await writeFile(path.join(out, 'data/entries.json'), JSON.stringify(publicEntries));
 await writeFile(path.join(out, 'data/toc.json'), JSON.stringify(toc));
-await writeFile(path.join(out, 'data/manifest.json'), JSON.stringify({entryCount: entries.length,
+await writeFile(path.join(out, 'data/manifest.json'), JSON.stringify({entryCount: publicEntries.length,
   surahs: Object.fromEntries(qwords.map(s => [s.surah_no, Math.max(...s.ayahs.map(a => a.no))]))}));
 for (const surah of qwords) await writeFile(path.join(out, `data/verses/${surah.surah_no}.json`), JSON.stringify(surah.ayahs));
-console.log(`Built ${publicEntries.length} Urdu entries and ${qwords.length} Surahs in dist from sanitized public data.`);
+console.log(`Built ${publicEntries.length} explained Urdu entries and ${qwords.length} Surahs in dist from sanitized public data.`);

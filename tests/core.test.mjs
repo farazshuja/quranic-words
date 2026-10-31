@@ -59,7 +59,7 @@ test('newer tombstones survive merges with stale saved cards', () => {
   assert.equal(mergeDecks(removed,saved)['alif-entry-1'].deleted,true);
   assert.deepEqual(mergeDecks({'bad':{due:0,updatedAt:1},'alif-entry-2':{due:'invalid',updatedAt:1}}),{});
 });
-test('standalone build preserves public inputs, excludes English, covers every entry and linked root', async () => {
+test('standalone build preserves public inputs and publishes only explained entries with valid TOC roots', async () => {
   await syncData({optional: true});
   const app = fileURLToPath(new URL('../',import.meta.url));
   const masters = ['entries','qwords'].map(name => new URL(`../data/${name}.json`,import.meta.url));
@@ -71,9 +71,11 @@ test('standalone build preserves public inputs, excludes English, covers every e
   const original = JSON.parse(readFileSync(masters[0]));
   const allowed = ['id','word','markdown_ur','nouns','verbs','root'];
   for (const entry of original) assert.ok(Object.keys(entry).every(key=>allowed.includes(key)));
-  assert.equal(entries.length,original.length);
+  const explained = original.filter(e=>typeof e.markdown_ur==='string' && e.markdown_ur.trim());
+  assert.equal(entries.length,explained.length);
   const map = new Map(entries.map(e=>[e.id,e]));
   for (const e of entries) {
+    assert.ok(e.markdown_ur.trim());
     assert.ok(!('markdown' in e)); assert.ok(!('usage' in e));
     if (e.rootId) assert.ok(map.has(e.rootId));
     assert.equal(e.markdown_ur,original.find(o=>o.id===e.id).markdown_ur || '');
@@ -81,6 +83,10 @@ test('standalone build preserves public inputs, excludes English, covers every e
   const toc = JSON.parse(readFileSync(new URL('../dist/data/toc.json',import.meta.url)));
   const ids = Object.values(toc).flatMap(group => group.flatMap(n=>[n.id,...n.children.map(c=>c.id)]));
   assert.equal(ids.length,entries.length); assert.equal(new Set(ids).size,entries.length);
+  for (const families of Object.values(toc)) for (const family of families) {
+    assert.ok(map.get(family.id)?.markdown_ur.trim());
+    for (const child of family.children) assert.ok(map.get(child.id)?.markdown_ur.trim());
+  }
   const {parseUrdu} = await import('../dist/src/markup.js');
   const rendered = parseUrdu('**رحمت**\n\n<script>alert(1)</script>');
   assert.ok(rendered.includes('<strong>رحمت</strong>'));
