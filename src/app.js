@@ -163,6 +163,16 @@ function renderToc() {
   $('#toc-next').disabled = !matches.length;
   if (activeMatch) requestAnimationFrame(() => document.querySelector(`[data-toc-match="${tocMatchIndex}"]`)?.scrollIntoView({block:'center', behavior:'smooth'}));
 }
+function renderTocKeyboard() {
+  const container = $('#toc-keyboard-layout');
+  const rows = ['1234567890-=', 'qwertyuiop[]', 'asdfghjkl;\'', 'zxcvbnm,./'];
+  container.innerHTML = `<div class="toc-keyboard-heading"><strong>Arabic keyboard layout</strong><span>Auto converts the physical keys below. Shift shows the shifted mapping; AltGr mappings appear under the relevant key.</span></div>${rows.map(row => `<div class="toc-keyboard-row">${[...row].map(key => {
+    const output = keyboardMap[key] || key;
+    const shifted = keyboardMap[key.toUpperCase()] || output;
+    const altGr = altGrMap[key];
+    return `<div class="toc-key"><small>${esc(key)}</small><b lang="ar" dir="rtl">${esc(output)}</b>${shifted !== output ? `<em>⇧ ${esc(shifted)}</em>` : ''}${altGr ? `<em>AltGr ${esc(altGr)}</em>` : ''}</div>`;
+  }).join('')}</div>`).join('')}<p class="toc-keyboard-note">Punctuation and vowel marks follow the Buckwalter keyboard mapping.</p>`;
+}
 function moveTocMatch(direction) {
   const matches = searchToc(toc, tocQuery);
   if (!matches.length) return;
@@ -257,6 +267,25 @@ document.addEventListener('click', async event => {
   }
   const button = event.target.closest('button');
   if (!button) return;
+  if (button.id === 'toc-info') {
+    const dialog = $('#keyboard-layout-dialog');
+    if (!dialog.open) dialog.showModal();
+    if (!$('#toc-keyboard-layout').hasChildNodes()) renderTocKeyboard();
+    button.setAttribute('aria-expanded', 'true');
+    return;
+  }
+  if (button.id === 'close-keyboard-layout') {
+    $('#keyboard-layout-dialog').close();
+    $('#toc-info').setAttribute('aria-expanded', 'false');
+    return;
+  }
+  if (button.id === 'toc-mode-switch') {
+    tocInputMode = tocInputMode === 'auto' ? 'sys' : 'auto';
+    button.setAttribute('aria-checked', String(tocInputMode === 'sys'));
+    $('#toc-mode-auto').classList.toggle('active', tocInputMode === 'auto');
+    $('#toc-mode-sys').classList.toggle('active', tocInputMode === 'sys');
+    return;
+  }
   if (button.dataset.tocMode) {
     tocInputMode = button.dataset.tocMode;
     document.querySelectorAll('[data-toc-mode]').forEach(mode => mode.setAttribute('aria-pressed', String(mode.dataset.tocMode === tocInputMode)));
@@ -310,6 +339,8 @@ $('#toc-search').addEventListener('input', event => {tocQuery = event.target.val
 $('#toc-search').addEventListener('keydown', handleTocKeyDown);
 $('#cards-search').addEventListener('input', () => {if (cloud) renderCards();});
 $('#detail-dialog').addEventListener('click', event => {if (event.target === $('#detail-dialog')) {const r = event.target.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) event.target.close();}});
+$('#keyboard-layout-dialog').addEventListener('click', event => {if (event.target === $('#keyboard-layout-dialog')) {$('#keyboard-layout-dialog').close(); $('#toc-info').setAttribute('aria-expanded', 'false');}});
+$('#keyboard-layout-dialog').addEventListener('close', () => $('#toc-info').setAttribute('aria-expanded', 'false'));
 window.addEventListener('hashchange', () => {if (manifest) route();});
 window.addEventListener('online', () => {if (cloud?.authorized) void cloud.sync();});
 window.addEventListener('focus', () => {if (cloud) renderAuth();});
