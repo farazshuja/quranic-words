@@ -180,7 +180,7 @@ function moveTocMatch(direction) {
   renderToc();
 }
 function handleTocKeyDown(event) {
-  if (event.nativeEvent?.isComposing || event.keyCode === 229) return;
+  if (event.isComposing || event.nativeEvent?.isComposing || event.keyCode === 229) return;
   if (event.key === 'Enter') { event.preventDefault(); moveTocMatch(event.shiftKey ? -1 : 1); return; }
   if (tocInputMode !== 'auto' || event.metaKey) return;
   const altGr = event.getModifierState?.('AltGraph') || (event.ctrlKey && event.altKey);
@@ -191,6 +191,21 @@ function handleTocKeyDown(event) {
   const input = event.currentTarget, start = input.selectionStart, end = input.selectionEnd;
   tocQuery = input.value.slice(0, start) + replacement + input.value.slice(end); tocMatchIndex = 0;
   input.value = tocQuery; renderToc(); input.setSelectionRange(start + replacement.length, start + replacement.length);
+}
+function handleTocBeforeInput(event) {
+  const text = event.data;
+  if (tocInputMode !== 'auto' || !text || event.inputType !== 'insertText' || event.isComposing) return;
+  const converted = [...text].map(character => keyboardMap[character] ?? character).join('');
+  if (converted === text) return;
+  event.preventDefault();
+  const input = event.currentTarget;
+  const start = input.selectionStart ?? input.value.length;
+  const end = input.selectionEnd ?? start;
+  tocQuery = input.value.slice(0, start) + converted + input.value.slice(end);
+  tocMatchIndex = 0;
+  input.value = tocQuery;
+  renderToc();
+  requestAnimationFrame(() => input.setSelectionRange(start + converted.length, start + converted.length));
 }
 function savedCards() { return Object.entries(cloud.deck).filter(([id, card]) => !card.deleted && entries.has(id)).sort((a, b) => a[1].due - b[1].due); }
 function renderCards() {
@@ -337,6 +352,7 @@ document.addEventListener('click', async event => {
 $('#verse-form').addEventListener('submit', event => {event.preventDefault(); if (manifest) void loadVerse($('#reference').value);});
 $('#toc-search').addEventListener('input', event => {tocQuery = event.target.value; tocMatchIndex = 0; renderToc();});
 $('#toc-search').addEventListener('keydown', handleTocKeyDown);
+$('#toc-search').addEventListener('beforeinput', handleTocBeforeInput);
 $('#cards-search').addEventListener('input', () => {if (cloud) renderCards();});
 $('#detail-dialog').addEventListener('click', event => {if (event.target === $('#detail-dialog')) {const r = event.target.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) event.target.close();}});
 $('#keyboard-layout-dialog').addEventListener('click', event => {if (event.target === $('#keyboard-layout-dialog')) {$('#keyboard-layout-dialog').close(); $('#toc-info').setAttribute('aria-expanded', 'false');}});
