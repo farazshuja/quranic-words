@@ -15,6 +15,34 @@ function notice(message) {
 }
 function readLocal(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch {return fallback;} }
 function storeLocal(key, value) {try { localStorage.setItem(key, JSON.stringify(value)); } catch {notice('Browser storage is unavailable. Your reading position cannot be remembered.');} }
+function readLocation() {
+  const hash = location.hash.slice(1);
+  const separator = hash.indexOf('?');
+  const page = (separator < 0 ? hash : hash.slice(0, separator)) || 'read';
+  const raw = separator < 0 ? '' : hash.slice(separator + 1);
+  const params = new URLSearchParams(raw);
+  const bare = raw && !raw.includes('=') ? params.keys().next().value : null;
+  return {page, params, bare};
+}
+function writeHash(page, values = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(values)) if (value) params.set(key, value);
+  const query = params.toString();
+  history.replaceState(history.state, '', `${location.pathname}${location.search}#${page}${query ? `?${query}` : ''}`);
+}
+function writeDictionaryLocation(values = {}) { writeHash('dictionary', values); }
+function writeVerseLocation(reference) { writeHash('read', {verse:reference}); }
+function cardUrlReference(entry) { return entry.word.includes('/') ? entry.word.replaceAll('/', '-') : entry.word; }
+function findLetterId(value) {
+  if (!value) return null;
+  return alphabet.find(([id, label]) => id === value || label === value)?.[0] || null;
+}
+function findEntryReference(reference) {
+  if (entries.has(reference)) return reference;
+  const needle = normalize(reference.includes('-') ? reference.replaceAll('-', '/') : reference);
+  if (!needle) return null;
+  return [...entries.values()].find(entry => normalize(entry.word) === needle)?.id || null;
+}
 async function json(url) {
   const response = await fetch(url, {signal:AbortSignal.timeout(20000)});
   if (!response.ok) throw new Error(`Could not load ${url.includes('alquran') ? 'the verse' : 'dictionary data'} (${response.status}).`);
@@ -69,10 +97,17 @@ function entryCard(id, inDialog = false) {
   const root = entry.root && entry.root !== entry.word ? `<div class="form-item"><span>Root</span>${entry.rootId ? `<button class="root-link" data-entry="${esc(entry.rootId)}">${esc(entry.root)} ↗</button>` : esc(entry.root)}</div>` : '';
   return `<article class="entry-card"><header class="entry-header"><div class="entry-heading"><h2 dir="rtl" lang="ar">${esc(entry.word)}</h2><small>${esc(entry.id)}</small></div>${children.length ? '<span class="badge">ROOT</span>' : ''}${inDialog ? '<button id="close-dialog" class="icon-button card-close" aria-label="Close dictionary card">×</button>' : ''}${heart(id)}</header><div class="entry-body"><div class="forms" dir="rtl">${root}${entry.nouns ? `<div class="form-item"><span>Nouns</span>${esc(entry.nouns)}</div>` : ''}${entry.verbs ? `<div class="form-item"><span>Verbs</span>${esc(entry.verbs)}</div>` : ''}</div>${entry.markdown_ur ? `<div class="urdu" lang="ur" dir="rtl">${markdown(entry.markdown_ur)}</div>` : '<p class="muted">An Urdu explanation is not available for this entry yet.</p>'}${children.length ? `<p class="muted">Words from this root</p><div class="related">${children.map(e => `<button class="word-chip" data-entry="${esc(e.id)}">${esc(e.word)}</button>`).join('')}</div>` : ''}</div></article>`;
 }
-function openEntry(id) {
+function openEntry(id, updateLocation = readLocation().page === 'dictionary') {
   dialogId = id; $('#dialog-card').innerHTML = entryCard(id, true);
   if (!$('#detail-dialog').open) $('#detail-dialog').showModal();
   $('#detail-dialog').scrollTop = 0;
+  if (updateLocation) writeDictionaryLocation({card:entries.has(id) ? cardUrlReference(entries.get(id)) : id});
+}
+function closeEntryDialog() {
+  if ($('#detail-dialog').open) $('#detail-dialog').close();
+  dialogId = null;
+  const state = readLocation();
+  if (state.page === 'dictionary' && state.params.has('card')) writeDictionaryLocation({letter:alphabet.find(([id]) => id === selectedLetter)?.[1] || ''});
 }
 function refreshHearts() {
   for (const button of document.querySelectorAll('[data-heart]')) {
@@ -109,6 +144,7 @@ async function loadVerse(input) {
     const aligned = alignWords(result.data.text, source, reference);
     currentRef = reference; currentWords = aligned.words;
     cloud?.setLastVerse(reference);
+    if (readLocation().page === 'read') writeVerseLocation(reference);
     $('#reference').value = reference;
     $('#verse-label').textContent = `${result.data.surah?.englishName || 'Surah ' + surah} · ${reference}`;
     $('#verse-status').textContent = [result.cached ? 'Showing your last cached verse; the Quran API is unavailable.' : '', !aligned.aligned ? 'Some words could not be aligned with the dictionary’s word list.' : ''].filter(Boolean).join(' ');
@@ -155,7 +191,7 @@ function renderToc() {
     if (!families.length) continue;
     const filtered = tocQuery ? families.map((item, familyIndex) => ({item, familyIndex})).filter(({familyIndex}) => matches.some(match => match.letter === letter && match.familyIndex === familyIndex)) : families.map((item, familyIndex) => ({item, familyIndex}));
     if (!filtered.length) continue;
-    html.push(`<section class="toc-group"><h2 class="toc-letter">${label}</h2><div class="toc-items">${filtered.map(({item, familyIndex}) => `<div class="toc-family ${(item.children?.length || item.word.includes('/')) ? 'root-family' : ''}">${entries.has(item.id) ? `<button data-entry="${esc(item.id)}">${highlight(item.word, letter, familyIndex, 0)}</button>` : `<span class="toc-root-label">${highlight(item.word, letter, familyIndex, 0)}</span>`}${(item.children || []).map((e, index) => `<button data-entry="${esc(e.id)}">${highlight(e.word, letter, familyIndex, index + 1)}</button>`).join('')}</div>`).join('')}</div></section>`);
+    html.push(`<section class="toc-group"><h2 class="toc-letter">${label}</h2><div class="toc-items">${filtered.map(({item, familyIndex}) => `<div class="toc-family ${(item.children?.length || item.word.includes('/')) ? 'root-family' : ''}" data-toc-id="${esc(item.id)}" data-toc-word="${esc(item.word)}">${entries.has(item.id) ? `<button data-entry="${esc(item.id)}">${highlight(item.word, letter, familyIndex, 0)}</button>` : `<button class="toc-root-label" data-entry="${esc(item.children?.[0]?.id || '')}">${highlight(item.word, letter, familyIndex, 0)}</button>`}${(item.children || []).map((e, index) => `<button data-entry="${esc(e.id)}">${highlight(e.word, letter, familyIndex, index + 1)}</button>`).join('')}</div>`).join('')}</div></section>`);
   }
   $('#toc').innerHTML = html.join('') || `<div class="empty">${tocQuery ? 'No matching dictionary entries.' : 'No dictionary entries for this letter.'}</div>`;
   $('#toc-search-status').textContent = matches.length ? `${tocMatchIndex + 1} / ${matches.length}` : tocQuery ? 'No matches' : '0 / 0';
@@ -243,15 +279,38 @@ function renderAuth() {
   $('#sync').disabled = cloud.busy;
   renderCards(); renderStudy(); refreshHearts();
 }
-function route() {
-  const page = location.hash.slice(1) || 'read';
+function route({skipVerseLoad = false} = {}) {
+  const state = readLocation();
+  const page = state.page;
   const valid = ['read','dictionary','cards','study','privacy'].includes(page) ? page : 'read';
   for (const section of document.querySelectorAll('.page')) section.hidden = section.id !== valid;
   for (const link of document.querySelectorAll('nav a')) {
     link.classList.toggle('active', link.dataset.page === valid);
     if (link.dataset.page === valid) link.setAttribute('aria-current','page'); else link.removeAttribute('aria-current');
   }
-  if (valid === 'dictionary') renderToc();
+  if (valid !== 'dictionary' && $('#detail-dialog').open) $('#detail-dialog').close();
+  if (valid === 'dictionary') {
+    const cardRef = state.params.get('card');
+    const letterRef = state.params.get('letter') || state.bare;
+    const cardId = cardRef ? findEntryReference(cardRef) : null;
+    const letter = findLetterId(letterRef) || (cardId ? findLetterId(cardId.split('-')[0]) : null);
+    if (letter) selectedLetter = letter;
+    if (tocQuery) {tocQuery = ''; $('#toc-search').value = ''; tocMatchIndex = 0;}
+    renderToc();
+    if (cardRef) {
+      if (cardId) openEntry(cardId, false);
+      else if ($('#detail-dialog').open) $('#detail-dialog').close();
+    } else {
+      if ($('#detail-dialog').open) $('#detail-dialog').close();
+    }
+  }
+  if (valid === 'read') {
+    const reference = state.params.get('verse') || state.bare;
+    if (reference && !skipVerseLoad && manifest) {
+      try {const parsed = parseReference(reference, manifest.surahs); if (parsed !== currentRef) void loadVerse(parsed);}
+      catch (error) {notice(error.message);}
+    } else if (!reference && !skipVerseLoad && currentRef) writeVerseLocation(currentRef);
+  }
   if (valid === 'cards' || valid === 'study') renderAuth();
 }
 
@@ -261,9 +320,13 @@ async function start() {
     entries = new Map(data.map(e => [e.id, e])); toc = index; manifest = meta; config = settings;
     cloud = new DriveCards({clientId:config.googleClientId, onChange:renderAuth});
     $('#dictionary-count').textContent = `${entries.size.toLocaleString()} entries, grouped by Arabic letter and root. Select any word to explore.`;
-    $('#startup').hidden = true; renderAuth(); route();
+    $('#startup').hidden = true; renderAuth(); route({skipVerseLoad:true});
+    const state = readLocation();
+    const requested = state.page === 'read' ? (state.params.get('verse') || state.bare) : null;
     const last = readLocal('qw.lastVerse', null);
-    await loadVerse(last?.reference || '1:1');
+    let initialReference = requested || last?.reference || '1:1';
+    try {initialReference = parseReference(initialReference, manifest.surahs);} catch {initialReference = '1:1';}
+    await loadVerse(initialReference);
   } catch (error) {
     $('#startup').innerHTML = `<h2>The dictionary could not load.</h2><p>${esc(error.message)}</p><button class="button" id="retry-start">Try again</button>`;
   }
@@ -274,7 +337,8 @@ document.addEventListener('click', async event => {
   if (verseLink && manifest) {
     event.preventDefault();
     if ($('#detail-dialog').open) $('#detail-dialog').close();
-    location.hash = 'read';
+    writeVerseLocation(verseLink.dataset.verse);
+    route({skipVerseLoad:true});
     $('#reference').value = verseLink.dataset.verse;
     void loadVerse(verseLink.dataset.verse);
     $('#verse-form').scrollIntoView({behavior:'smooth', block:'start'});
@@ -334,13 +398,16 @@ document.addEventListener('click', async event => {
     else if (button.dataset.ref) void loadVerse(button.dataset.ref);
     else if (button.id === 'prev-verse') adjacentVerse(-1);
     else if (button.id === 'next-verse') adjacentVerse(1);
-    else if (button.dataset.letter !== undefined) { selectedLetter = button.dataset.letter; renderToc(); }
+    else if (button.dataset.letter !== undefined) {
+      selectedLetter = button.dataset.letter; renderToc();
+      writeDictionaryLocation({letter:alphabet.find(([id]) => id === selectedLetter)?.[1] || selectedLetter});
+    }
     else if (button.id === 'reveal') {revealed = true; renderStudy();}
     else if (button.dataset.grade && studyId && revealed) {
       const id = studyId; const next = schedule(cloud.deck[id], button.dataset.grade, Math.max(Date.now(), cloud.deck[id].updatedAt + 1));
       studyId = null; revealed = false; studied++; cloud.mutate(id, next);
     }
-    else if (button.id === 'close-dialog') $('#detail-dialog').close();
+    else if (button.id === 'close-dialog') closeEntryDialog();
     else if (button.id === 'clear-local') {
       if (cloud.busy) {notice('Wait for the current sync to finish before clearing local data.'); return;}
       cloud.signOut();
@@ -354,7 +421,12 @@ $('#toc-search').addEventListener('input', event => {tocQuery = event.target.val
 $('#toc-search').addEventListener('keydown', handleTocKeyDown);
 $('#toc-search').addEventListener('beforeinput', handleTocBeforeInput);
 $('#cards-search').addEventListener('input', () => {if (cloud) renderCards();});
-$('#detail-dialog').addEventListener('click', event => {if (event.target === $('#detail-dialog')) {const r = event.target.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) event.target.close();}});
+$('#detail-dialog').addEventListener('click', event => {if (event.target === $('#detail-dialog')) {const r = event.target.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) closeEntryDialog();}});
+$('#detail-dialog').addEventListener('close', () => {
+  const state = readLocation();
+  if (state.page === 'dictionary' && state.params.has('card')) writeDictionaryLocation({letter:alphabet.find(([id]) => id === selectedLetter)?.[1] || ''});
+  dialogId = null;
+});
 $('#keyboard-layout-dialog').addEventListener('click', event => {if (event.target === $('#keyboard-layout-dialog')) {$('#keyboard-layout-dialog').close(); $('#toc-info').setAttribute('aria-expanded', 'false');}});
 $('#keyboard-layout-dialog').addEventListener('close', () => $('#toc-info').setAttribute('aria-expanded', 'false'));
 window.addEventListener('hashchange', () => {if (manifest) route();});
