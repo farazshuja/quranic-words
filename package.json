@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "sync-data": "node scripts/sync-data.mjs",
+    "sync": "npm run sync-data && npm run build",
+    "sync-check": "npm run sync-data && npm run build && npm test",
     "build": "node scripts/build.mjs",
     "dev": "npm run build && node scripts/serve.mjs",
     "preview": "node scripts/serve.mjs",
