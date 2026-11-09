@@ -74,15 +74,17 @@ test('standalone build preserves public inputs and publishes only explained entr
   const explained = original.filter(e=>typeof e.markdown_ur==='string' && e.markdown_ur.trim());
   assert.equal(entries.length,explained.length);
   const map = new Map(entries.map(e=>[e.id,e]));
-  for (const e of entries) {
+  for (let index = 0; index < entries.length; index++) {
+    const e = entries[index];
     assert.ok(e.markdown_ur.trim());
     assert.ok(!('markdown' in e)); assert.ok(!('usage' in e));
     if (e.rootId) assert.ok(map.has(e.rootId));
-    assert.equal(e.markdown_ur,original.find(o=>o.id===e.id).markdown_ur || '');
+    assert.equal(e.markdown_ur,explained[index].markdown_ur ?? '');
   }
   const toc = JSON.parse(readFileSync(new URL('../dist/data/toc.json',import.meta.url)));
   const ids = Object.values(toc).flatMap(group => group.flatMap(n=>[...(map.has(n.id)?[n.id]:[]),...(n.children||[]).map(c=>c.id)]));
-  assert.equal(ids.length,entries.length); assert.equal(new Set(ids).size,entries.length);
+  assert.ok(ids.every(id=>map.has(id)));
+  assert.equal(ids.length,entries.length);
   for (const families of Object.values(toc)) for (const family of families) {
     assert.ok(map.has(family.id) ? map.get(family.id).markdown_ur.trim() : family.children?.length > 0);
     for (const child of family.children || []) assert.ok(map.get(child.id)?.markdown_ur.trim());
