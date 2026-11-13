@@ -63,12 +63,13 @@ await cp(path.join(app, 'public/quranic-words-logo.svg'), path.join(out, 'qurani
 const marked = fileURLToPath(import.meta.resolve('marked'));
 await cp(marked, path.join(out, 'vendor/marked.js'));
 const config = JSON.parse(await readFile(path.join(app, 'config.json'), 'utf8'));
-config.googleClientId = process.env.GOOGLE_CLIENT_ID || config.googleClientId || '';
 await writeFile(path.join(out, 'config.json'), JSON.stringify(config));
 await writeFile(path.join(out, '.nojekyll'), '');
 await writeFile(path.join(out, 'data/entries.json'), JSON.stringify(publicEntries));
 await writeFile(path.join(out, 'data/toc.json'), JSON.stringify(toc));
 await writeFile(path.join(out, 'data/manifest.json'), JSON.stringify({entryCount: publicEntries.length,
   surahs: Object.fromEntries(qwords.map(s => [s.surah_no, Math.max(...s.ayahs.map(a => a.no))]))}));
+await writeFile(path.join(out, 'data/study-index.json'), JSON.stringify(qwords.map(s => ({surah_no:s.surah_no,
+  ayahs:s.ayahs.map(a => ({no:a.no, entries:[...new Set((a.words || []).map(w => w.entryId).filter(id => explainedIds.has(id)))]}))}))));
 for (const surah of qwords) await writeFile(path.join(out, `data/verses/${surah.surah_no}.json`), JSON.stringify(surah.ayahs));
 console.log(`Built ${publicEntries.length} explained Urdu entries and ${qwords.length} Surahs in dist from sanitized public data.`);

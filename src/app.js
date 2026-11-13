@@ -1,13 +1,14 @@
 import {escapeHtml as esc, parseUrdu} from './markup.js';
 import {alphabet, normalize, searchToc, keyboardMap, altGrMap, parseReference, verseReferences, alignWords, schedule} from './core.js';
-import {DriveCards} from './drive.js';
+import {FirebaseCards} from './firebase-cards.js';
 
 const $ = selector => document.querySelector(selector);
 let entries = new Map(), toc = {}, manifest, config, cloud;
 let currentRef = '1:1', currentWords = [], readerId = null, dialogId = null, requestId = 0;
-let selectedLetter = 'alif', studyId = null, revealed = false, studied = 0;
+let selectedLetter = 'alif', studyId = null, studyCardId = null, revealed = false, studied = 0;
 let tocQuery = '', tocInputMode = 'auto', tocMatchIndex = 0;
 const surahCache = new Map();
+let qwords = null, studyBusy = false;
 let noticeTimer;
 function notice(message) {
   $('#notification').textContent = message; $('#notification').hidden = false;
@@ -94,8 +95,8 @@ function entryCard(id, inDialog = false) {
   const entry = entries.get(id);
   if (!entry) return '<div class="empty"><h2>No word found</h2><p>This word has not been linked to a dictionary entry yet.</p></div>';
   const children = [...entries.values()].filter(e => e.rootId === id && e.id !== id);
-  const root = entry.root && entry.root !== entry.word ? `<div class="form-item"><span>Root</span>${entry.rootId ? `<button class="root-link" data-entry="${esc(entry.rootId)}">${esc(entry.root)} ↗</button>` : esc(entry.root)}</div>` : '';
-  return `<article class="entry-card"><header class="entry-header"><div class="entry-heading"><h2 dir="rtl" lang="ar">${esc(entry.word)}</h2><small>${esc(entry.id)}</small></div>${children.length ? '<span class="badge">ROOT</span>' : ''}${inDialog ? '<button id="close-dialog" class="icon-button card-close" aria-label="Close dictionary card">×</button>' : ''}${heart(id)}</header><div class="entry-body"><div class="forms" dir="rtl">${root}${entry.nouns ? `<div class="form-item"><span>Nouns</span>${esc(entry.nouns)}</div>` : ''}${entry.verbs ? `<div class="form-item"><span>Verbs</span>${esc(entry.verbs.split('|')[0].trim())}</div>` : ''}</div>${entry.markdown_ur ? `<div class="urdu" lang="ur" dir="rtl">${markdown(entry.markdown_ur)}</div>` : '<p class="muted">An Urdu explanation is not available for this entry yet.</p>'}${children.length ? `<p class="muted">Words from this root</p><div class="related">${children.map(e => `<button class="word-chip" data-entry="${esc(e.id)}">${esc(e.word)}</button>`).join('')}</div>` : ''}</div></article>`;
+  const root = entry.root && entry.root !== entry.word ? `<div class="form-item"><span>Root</span>${entry.rootId ? `<a class="root-link" href="#dictionary?card=${encodeURIComponent(cardUrlReference(entries.get(entry.rootId)))}" data-entry="${esc(entry.rootId)}">${esc(entry.root)} ↗</a>` : esc(entry.root)}</div>` : '';
+  return `<article class="entry-card"><header class="entry-header"><div class="entry-heading"><h2 dir="rtl" lang="ar">${esc(entry.word)}</h2><small>${esc(entry.id)}</small></div>${children.length ? '<span class="badge">ROOT</span>' : ''}${inDialog ? '<button id="close-dialog" class="icon-button card-close" aria-label="Close dictionary card">×</button>' : ''}<button class="copy-card icon-button" data-copy-card="${esc(id)}" aria-label="Copy Urdu markdown" title="Copy Urdu markdown">⧉</button>${heart(id)}</header><div class="entry-body"><div class="forms" dir="rtl">${root}${entry.nouns ? `<div class="form-item"><span>Nouns</span>${esc(entry.nouns)}</div>` : ''}${entry.verbs ? `<div class="form-item"><span>Verbs</span>${esc(entry.verbs.split('|')[0].trim())}</div>` : ''}</div>${entry.markdown_ur ? `<div class="urdu" lang="ur" dir="rtl">${markdown(entry.markdown_ur)}</div>` : '<p class="muted">An Urdu explanation is not available for this entry yet.</p>'}${children.length ? `<p class="muted">Words from this root</p><div class="related">${children.map(e => `<button class="word-chip" data-entry="${esc(e.id)}">${esc(e.word)}</button>`).join('')}</div>` : ''}</div></article>`;
 }
 function openEntry(id, updateLocation = readLocation().page === 'dictionary') {
   dialogId = id; $('#dialog-card').innerHTML = entryCard(id, true);
@@ -255,24 +256,70 @@ function renderCards() {
 function duration(card, grade) {
   const next = schedule(card, grade); return next.interval < 1 ? '10 minutes' : `${Math.round(next.interval)} ${Math.round(next.interval) === 1 ? 'day' : 'days'}`;
 }
+function parseStudyRange(input) {
+  const value = input.trim();
+  let match = value.match(/^(\d{1,3})$/);
+  if (match) {const surah = Number(match[1]); if (!manifest.surahs[surah]) throw new Error('Enter a Surah number from 1 to 114.'); return {start:[surah,1], end:[surah,manifest.surahs[surah]], name:String(surah)};}
+  match = value.match(/^(\d{1,3})\s*:\s*(\d{1,3})\s*(?:-|–|—)\s*(?:(\d{1,3})\s*:\s*)?(\d{1,3})$/);
+  if (!match) throw new Error('Use a range like 1:1-3:73, or enter one Surah number such as 23.');
+  const [,ss,aa,es,ea] = match;
+  const start = [Number(ss),Number(aa)], end = [Number(es || ss),Number(ea)];
+  if (!manifest.surahs[start[0]] || start[1] < 1 || start[1] > manifest.surahs[start[0]] || !manifest.surahs[end[0]] || end[1] < 1 || end[1] > manifest.surahs[end[0]]) throw new Error('That study range contains a verse that does not exist.');
+  if (start[0] > end[0] || (start[0] === end[0] && start[1] > end[1])) throw new Error('The range must start before it ends.');
+  return {start,end,name:`${start[0]}-${start[1]}:${end[0]}:${end[1]}`};
+}
+async function createStudy(input) {
+  if (studyBusy) return;
+  const range = parseStudyRange(input), started = Date.now();
+  studyBusy = true;
+  $('#study-area').innerHTML = `<div class="empty" role="status"><span class="empty-symbol">◌</span><h2>Building ${esc(range.name)}</h2><p id="study-progress">Preparing verse mappings…</p></div>`;
+  await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+  try {
+    if (!qwords) qwords = await json('./data/study-index.json');
+    const ids = new Set(); let inspected = 0;
+    const inRange = ([s,a]) => (s > range.start[0] || (s === range.start[0] && a >= range.start[1])) && (s < range.end[0] || (s === range.end[0] && a <= range.end[1]));
+    for (const surah of qwords) {
+      if (surah.surah_no < range.start[0] || surah.surah_no > range.end[0]) continue;
+      for (const ayah of surah.ayahs) {
+        if (!inRange([surah.surah_no,ayah.no])) continue;
+        for (const entryId of ayah.entries || []) {
+          const entry = entries.get(entryId);
+          if (entry && (entry.nouns?.trim() || entry.verbs?.trim())) ids.add(entry.id);
+        }
+        inspected++;
+        if (inspected % 80 === 0) {
+          const status = $('#study-progress'); if (status) status.textContent = `${inspected} verses checked · ${ids.size} cards found…`;
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      }
+    }
+    const study = {name:range.name,start:`${range.start[0]}:${range.start[1]}`,end:`${range.end[0]}:${range.end[1]}`,cards:[...ids],updatedAt:Math.max(Date.now(),started+1),deleted:false};
+    cloud.mutateStudy(range.name, study); studyId = range.name;
+  } finally {studyBusy = false; renderStudy();}
+}
 function renderStudy() {
   if (!cloud.authorized) {$('#study-area').innerHTML = ''; return;}
-  const due = savedCards().filter(([, c]) => c.due <= Date.now());
-  if (!due.some(([id]) => id === studyId)) { studyId = due[0]?.[0] || null; revealed = false; }
-  if (!studyId) {
-    const next = savedCards()[0]?.[1];
-    $('#study-area').innerHTML = `<div class="empty"><span class="empty-symbol" aria-hidden="true">✓</span><h2>${savedCards().length ? 'You’re all caught up.' : 'Save your first word.'}</h2><p>${next ? `Your next review is ${esc(new Date(next.due).toLocaleString())}.` : 'Add words with the heart on a dictionary card, then return here.'}</p><p>${studied ? `${studied} reviewed in this session.` : ''}</p><a href="#cards">Browse your cards →</a></div>`; return;
+  if (studyBusy) return;
+  const studies = Object.entries(cloud.studies || {}).filter(([, study]) => !study.deleted).sort((a,b) => a[0].localeCompare(b[0]));
+  const active = studyId ? studies.find(([id]) => id === studyId) : null;
+  if (!active) {
+    $('#study-area').innerHTML = `<form id="create-study" class="study-create"><label for="study-range">Create a study</label><div><input id="study-range" placeholder="1:1-3:73 or 23" required autocomplete="off"><button class="button" type="submit">Create study</button></div><p class="muted">Use a verse range such as 1:1-3:73, or enter a Surah number for the whole Surah.</p></form>${studies.length ? `<div class="study-list">${studies.map(([id, study]) => `<article class="study-item"><button class="study-open" data-study="${esc(id)}"><strong>${esc(study.name)}</strong><small>${(study.cards || []).length} cards</small></button><button class="icon-button" data-delete-study="${esc(id)}" aria-label="Delete ${esc(study.name)}" title="Delete study">×</button></article>`).join('')}</div>` : '<div class="empty"><h2>No studies yet.</h2><p>Create one from a Surah or verse range.</p></div>'}`;
+    return;
   }
-  const entry = entries.get(studyId), card = cloud.deck[studyId];
-  $('#study-area').innerHTML = `<div class="study-top"><span>${due.length} due · ${studied} reviewed</span><a href="#cards">Browse cards</a></div>${revealed ? entryCard(studyId) : `<div class="study-front"><p class="muted">What does this word mean?</p><div class="study-word" dir="rtl" lang="ar">${esc(entry.word)}</div><button class="button" id="reveal">Reveal answer</button></div>`}${revealed ? `<div class="ratings">${['failed','difficult','medium','easy'].map(grade => `<button class="rating ${grade}" data-grade="${grade}">${grade[0].toUpperCase()+grade.slice(1)}<small>${duration(card, grade)}</small></button>`).join('')}</div>` : ''}`;
+  const [id, selected] = active;
+  const cards = (selected.cards || []).filter(entryId => entries.has(entryId));
+  if (!studyCardId || !cards.includes(studyCardId)) studyCardId = cards[0] || null;
+  if (!studyCardId) {$('#study-area').innerHTML = `<div class="study-top"><button class="text-button" data-studies>← All studies</button><strong>${esc(selected.name)}</strong></div><div class="empty"><h2>This study has no eligible cards.</h2></div>`; return;}
+  const entry = entries.get(studyCardId);
+  $('#study-area').innerHTML = `<div class="study-top"><button class="text-button" data-studies>← All studies</button><span>${esc(selected.name)} · ${cards.indexOf(studyCardId)+1} of ${cards.length}</span><button class="text-button" data-next-study>Next card →</button></div>${revealed ? entryCard(studyCardId) : `<div class="study-front"><p class="muted">What does this word mean?</p><div class="study-word" dir="rtl" lang="ar">${esc(entry.word)}</div><button class="button" id="reveal">Reveal answer</button></div>`}${revealed ? '<div class="study-top"><button class="button" data-next-study>Next card →</button></div>' : ''}`;
 }
 function renderAuth() {
   if (!cloud) return;
-  $('#account').textContent = cloud.authorized ? `${cloud.user.name} · Sign out` : cloud.busy ? 'Connecting…' : 'Sign in with Google';
+  $('#account').textContent = cloud.authorized ? `${cloud.user.name} · Sign out` : cloud.busy ? 'Connecting…' : 'Sign in with Gmail';
   $('#account').disabled = cloud.busy;
   for (const gate of document.querySelectorAll('.auth-gate')) {
     gate.hidden = cloud.authorized;
-    gate.innerHTML = `<div class="empty"><span class="empty-symbol" aria-hidden="true">♡</span><h2>A place for your own words.</h2><p>Sign in to save flashcards and keep your study progress across devices.</p><p>Stored privately in your Google Drive.</p><button class="button" data-signin ${cloud.busy ? 'disabled' : ''}>${cloud.busy ? 'Connecting…' : 'Continue with Google'}</button>${!config.googleClientId ? '<p>Google sign-in is not available yet.</p>' : ''}</div>`;
+    gate.innerHTML = `<div class="empty"><span class="empty-symbol" aria-hidden="true">♡</span><h2>A place for your own words.</h2><p>Sign in with ${esc(config.allowedEmail)} to save cards and studies.</p><p>Stored privately in Firebase.</p><button class="button" data-signin ${cloud.busy ? 'disabled' : ''}>${cloud.busy ? 'Connecting…' : 'Continue with Gmail'}</button>${!config.firebase?.apiKey ? '<p>Firebase is not configured yet.</p>' : ''}</div>`;
   }
   for (const panel of document.querySelectorAll('.private-content')) panel.hidden = !cloud.authorized;
   for (const status of document.querySelectorAll('.sync-status')) status.textContent = cloud.status;
@@ -318,7 +365,7 @@ async function start() {
   try {
     const [data, index, meta, settings] = await Promise.all([json('./data/entries.json'), json('./data/toc.json'), json('./data/manifest.json'), json('./config.json')]);
     entries = new Map(data.map(e => [e.id, e])); toc = index; manifest = meta; config = settings;
-    cloud = new DriveCards({clientId:config.googleClientId, onChange:renderAuth});
+    cloud = new FirebaseCards({config:config.firebase, onChange:renderAuth});
     $('#dictionary-count').textContent = `${entries.size.toLocaleString()} entries, grouped by Arabic letter and root. Select any word to explore.`;
     $('#startup').hidden = true; renderAuth(); route({skipVerseLoad:true});
     const state = readLocation();
@@ -346,6 +393,8 @@ document.addEventListener('click', async event => {
   }
   const button = event.target.closest('button');
   if (!button) return;
+  const rootLink = event.target.closest('a.root-link[data-entry]');
+  if (rootLink) { event.preventDefault(); openEntry(rootLink.dataset.entry, readLocation().page === 'dictionary'); return; }
   if (button.id === 'toc-info') {
     const dialog = $('#keyboard-layout-dialog');
     if (!dialog.open) dialog.showModal();
@@ -376,7 +425,25 @@ document.addEventListener('click', async event => {
   if (button.id === 'retry-start') {void start(); return;}
   if (!cloud) return;
   try {
-    if (button.dataset.entry) openEntry(button.dataset.entry);
+    if (button.dataset.copyCard) {
+      const entry = entries.get(button.dataset.copyCard);
+      if (!entry) return;
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard access is unavailable in this browser.');
+      await navigator.clipboard.writeText(entry.markdown_ur || '');
+      notice('Urdu Markdown copied.');
+    }
+    else if (button.dataset.entry) openEntry(button.dataset.entry);
+    else if (button.dataset.study) {studyId = button.dataset.study; studyCardId = null; revealed = false; renderStudy();}
+    else if (button.dataset.deleteStudy) {
+      const id = button.dataset.deleteStudy, old = cloud.studies[id];
+      if (old) cloud.mutateStudy(id, {...old, deleted:true, updatedAt:Math.max(Date.now(), old.updatedAt + 1)});
+      if (studyId === id) {studyId = null; studyCardId = null;}
+    }
+    else if (button.hasAttribute('data-studies')) {studyId = null; studyCardId = null; revealed = false; renderStudy();}
+    else if (button.hasAttribute('data-next-study')) {
+      const study = cloud.studies[studyId], ids = study?.cards || [];
+      const index = ids.indexOf(studyCardId); studyCardId = ids[(index + 1) % ids.length] || null; revealed = false; renderStudy();
+    }
     else if (button.dataset.heart) toggleCard(button.dataset.heart);
     else if (button.dataset.word !== undefined) {
       const index = Number(button.dataset.word); readerId = currentWords[index]?.entryId;
@@ -403,7 +470,7 @@ document.addEventListener('click', async event => {
       writeDictionaryLocation({letter:alphabet.find(([id]) => id === selectedLetter)?.[1] || selectedLetter});
     }
     else if (button.id === 'reveal') {revealed = true; renderStudy();}
-    else if (button.dataset.grade && studyId && revealed) {
+    else if (button.dataset.grade && studyId && revealed && !cloud.studies?.[studyId]) {
       const id = studyId; const next = schedule(cloud.deck[id], button.dataset.grade, Math.max(Date.now(), cloud.deck[id].updatedAt + 1));
       studyId = null; revealed = false; studied++; cloud.mutate(id, next);
     }
@@ -412,9 +479,15 @@ document.addEventListener('click', async event => {
       if (cloud.busy) {notice('Wait for the current sync to finish before clearing local data.'); return;}
       cloud.signOut();
       for (const key of Object.keys(localStorage)) if (key.startsWith('qw.deck.')) localStorage.removeItem(key);
-      notice('Local card data cleared. Your Google Drive data is unchanged.');
+      for (const key of Object.keys(localStorage)) if (key.startsWith('qw.firebase.')) localStorage.removeItem(key);
+      notice('Local card data cleared. Firebase data is unchanged.');
     }
   } catch (error) {notice(error.message);}
+});
+$('#study-area').addEventListener('submit', event => {
+  if (event.target.id !== 'create-study') return;
+  event.preventDefault();
+  void createStudy($('#study-range').value).catch(error => {studyBusy = false; notice(error.message); renderStudy();});
 });
 $('#verse-form').addEventListener('submit', event => {event.preventDefault(); if (manifest) void loadVerse($('#reference').value);});
 $('#toc-search').addEventListener('input', event => {tocQuery = event.target.value; tocMatchIndex = 0; renderToc();});

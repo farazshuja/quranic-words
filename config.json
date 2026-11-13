@@ -1,3 +1,12 @@
 {
-  "googleClientId": "84738804421-uo3coiumpf12g67j26erqc859u4sfu3l.apps.googleusercontent.com"
+  "allowedEmail": "farazshuja@gmail.com",
+  "firebase": {
+    "apiKey": "AIzaSyCZjcZYcaxcZ2wHP1Sgl5tw0LqL_fUsUo",
+    "authDomain": "quranic-words-1da3d.firebaseapp.com",
+    "projectId": "quranic-words-1da3d",
+    "storageBucket": "quranic-words-1da3d.firebasestorage.app",
+    "messagingSenderId": "173392051495",
+    "appId": "1:173392051495:web:34f669557e21f872c7bd02",
+    "measurementId": "G-JSQDD5MHHC"
+  }
 }
