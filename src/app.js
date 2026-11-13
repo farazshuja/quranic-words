@@ -256,6 +256,26 @@ function renderCards() {
 function duration(card, grade) {
   const next = schedule(card, grade); return next.interval < 1 ? '10 minutes' : `${Math.round(next.interval)} ${Math.round(next.interval) === 1 ? 'day' : 'days'}`;
 }
+function studyStats(study) {
+  const cards = (study.cards || []).filter(id => entries.has(id));
+  const progress = study.progress || {};
+  const now = Date.now(), studiedCount = cards.filter(id => (progress[id]?.reviews || 0) > 0).length;
+  const due = cards.filter(id => (progress[id]?.due || 0) <= now);
+  const upcoming = new Map();
+  const today = new Date(); today.setHours(0,0,0,0);
+  for (const id of cards) {
+    const dueAt = progress[id]?.due || 0;
+    if (dueAt <= now) continue;
+    const date = new Date(dueAt); date.setHours(0,0,0,0);
+    const days = Math.round((date - today) / 86400000);
+    const label = days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : date.toLocaleDateString(undefined,{month:'short',day:'numeric'});
+    upcoming.set(label, (upcoming.get(label) || 0) + 1);
+  }
+  return {cards, studiedCount, due, upcoming:[...upcoming.entries()]};
+}
+function dueSummary(upcoming) {
+  return upcoming.length ? upcoming.slice(0,4).map(([day,count]) => `${day}: ${count}`).join(' · ') : 'No cards scheduled yet.';
+}
 function parseStudyRange(input) {
   const value = input.trim();
   let match = value.match(/^(\d{1,3})$/);
@@ -268,32 +288,37 @@ function parseStudyRange(input) {
   if (start[0] > end[0] || (start[0] === end[0] && start[1] > end[1])) throw new Error('The range must start before it ends.');
   return {start,end,name:`${start[0]}-${start[1]}:${end[0]}:${end[1]}`};
 }
-async function createStudy(input) {
+async function createStudy(input, onlyNew = false) {
   if (studyBusy) return;
   const range = parseStudyRange(input), started = Date.now();
   studyBusy = true;
-  $('#study-area').innerHTML = `<div class="empty" role="status"><span class="empty-symbol">◌</span><h2>Building ${esc(range.name)}</h2><p id="study-progress">Preparing verse mappings…</p></div>`;
+  $('#study-area').innerHTML = `<div class="empty" role="status"><span class="empty-symbol">◌</span><h2>Building ${esc(range.name)}</h2><p id="study-progress">${onlyNew ? 'Checking earlier verses for first occurrences…' : 'Preparing verse mappings…'}</p></div>`;
   await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
   try {
     if (!qwords) qwords = await json('./data/study-index.json');
-    const ids = new Set(); let inspected = 0;
+    const ids = new Set(), seen = new Set(); let inspected = 0;
+    const beforeStart = ([s,a]) => s < range.start[0] || (s === range.start[0] && a < range.start[1]);
     const inRange = ([s,a]) => (s > range.start[0] || (s === range.start[0] && a >= range.start[1])) && (s < range.end[0] || (s === range.end[0] && a <= range.end[1]));
     for (const surah of qwords) {
-      if (surah.surah_no < range.start[0] || surah.surah_no > range.end[0]) continue;
+      if (surah.surah_no > range.end[0] || (!onlyNew && surah.surah_no < range.start[0])) continue;
       for (const ayah of surah.ayahs) {
-        if (!inRange([surah.surah_no,ayah.no])) continue;
+        const reference = [surah.surah_no,ayah.no], prior = beforeStart(reference);
+        if (onlyNew && !prior && !inRange(reference)) continue;
+        if (!onlyNew && !inRange(reference)) continue;
         for (const entryId of ayah.entries || []) {
           const entry = entries.get(entryId);
-          if (entry && (entry.nouns?.trim() || entry.verbs?.trim())) ids.add(entry.id);
+          if (prior) seen.add(entryId);
+          else if (entry && (entry.nouns?.trim() || entry.verbs?.trim()) && (!onlyNew || !seen.has(entryId))) ids.add(entry.id);
+          if (!prior) seen.add(entryId);
         }
         inspected++;
         if (inspected % 80 === 0) {
-          const status = $('#study-progress'); if (status) status.textContent = `${inspected} verses checked · ${ids.size} cards found…`;
+          const status = $('#study-progress'); if (status) status.textContent = `${inspected} verses checked${onlyNew ? ' · checking first occurrences' : ''} · ${ids.size} cards found…`;
           await new Promise(resolve => setTimeout(resolve, 0));
         }
       }
     }
-    const study = {name:range.name,start:`${range.start[0]}:${range.start[1]}`,end:`${range.end[0]}:${range.end[1]}`,cards:[...ids],updatedAt:Math.max(Date.now(),started+1),deleted:false};
+    const study = {name:range.name,start:`${range.start[0]}:${range.start[1]}`,end:`${range.end[0]}:${range.end[1]}`,onlyNew,cards:[...ids],updatedAt:Math.max(Date.now(),started+1),deleted:false};
     cloud.mutateStudy(range.name, study); studyId = range.name;
   } finally {studyBusy = false; renderStudy();}
 }
@@ -303,15 +328,17 @@ function renderStudy() {
   const studies = Object.entries(cloud.studies || {}).filter(([, study]) => !study.deleted).sort((a,b) => a[0].localeCompare(b[0]));
   const active = studyId ? studies.find(([id]) => id === studyId) : null;
   if (!active) {
-    $('#study-area').innerHTML = `<form id="create-study" class="study-create"><label for="study-range">Create a study</label><div><input id="study-range" placeholder="1:1-3:73 or 23" required autocomplete="off"><button class="button" type="submit">Create study</button></div><p class="muted">Use a verse range such as 1:1-3:73, or enter a Surah number for the whole Surah.</p></form>${studies.length ? `<div class="study-list">${studies.map(([id, study]) => `<article class="study-item"><button class="study-open" data-study="${esc(id)}"><strong>${esc(study.name)}</strong><small>${(study.cards || []).length} cards</small></button><button class="icon-button" data-delete-study="${esc(id)}" aria-label="Delete ${esc(study.name)}" title="Delete study">×</button></article>`).join('')}</div>` : '<div class="empty"><h2>No studies yet.</h2><p>Create one from a Surah or verse range.</p></div>'}`;
+    const list = studies.length ? `<div class="study-list">${studies.map(([id, study]) => {const stats=studyStats(study);return `<article class="study-item"><button class="study-open" data-study="${esc(id)}"><strong>${esc(study.name)}</strong><small>${stats.studiedCount} / ${stats.cards.length} studied · ${stats.due.length} due${stats.upcoming.length ? ` · ${esc(dueSummary(stats.upcoming))}` : ''}</small></button><button class="icon-button" data-delete-study="${esc(id)}" aria-label="Delete ${esc(study.name)}" title="Delete study">×</button></article>`;}).join('')}</div>` : '<div class="empty"><h2>No studies yet.</h2><p>Create one from a Surah or verse range.</p></div>';
+    $('#study-area').innerHTML = `<form id="create-study" class="study-create"><label for="study-range">Create a study</label><div><input id="study-range" placeholder="1:1-3:73 or 23" required autocomplete="off"><button class="button" type="submit">Create study</button></div><label class="study-checkbox"><input id="only-new-words" type="checkbox"> Only new words</label><p class="muted">Use a verse range such as 1:1-3:73, or enter a Surah number for the whole Surah.</p></form>${list}`;
     return;
   }
   const [id, selected] = active;
-  const cards = (selected.cards || []).filter(entryId => entries.has(entryId));
-  if (!studyCardId || !cards.includes(studyCardId)) studyCardId = cards[0] || null;
-  if (!studyCardId) {$('#study-area').innerHTML = `<div class="study-top"><button class="text-button" data-studies>← All studies</button><strong>${esc(selected.name)}</strong></div><div class="empty"><h2>This study has no eligible cards.</h2></div>`; return;}
+  const stats = studyStats(selected), cards = stats.cards;
+  if (!studyCardId || !stats.due.includes(studyCardId)) studyCardId = stats.due[0] || null;
+  if (!studyCardId) {$('#study-area').innerHTML = `<div class="study-top"><button class="text-button" data-studies>← All studies</button><strong>${esc(selected.name)}</strong></div><div class="empty"><span class="empty-symbol">✓</span><h2>${stats.studiedCount} / ${cards.length} cards studied</h2><p>You’re caught up for now.</p><p>${esc(dueSummary(stats.upcoming))}</p></div>`; return;}
   const entry = entries.get(studyCardId);
-  $('#study-area').innerHTML = `<div class="study-top"><button class="text-button" data-studies>← All studies</button><span>${esc(selected.name)} · ${cards.indexOf(studyCardId)+1} of ${cards.length}</span><button class="text-button" data-next-study>Next card →</button></div>${revealed ? entryCard(studyCardId) : `<div class="study-front"><p class="muted">What does this word mean?</p><div class="study-word" dir="rtl" lang="ar">${esc(entry.word)}</div><button class="button" id="reveal">Reveal answer</button></div>`}${revealed ? '<div class="study-top"><button class="button" data-next-study>Next card →</button></div>' : ''}`;
+  const progress = selected.progress?.[studyCardId] || {due:0,interval:0,ease:2.5,reviews:0,lapses:0,updatedAt:0};
+  $('#study-area').innerHTML = `<div class="study-top"><button class="text-button" data-studies>← All studies</button><span>${esc(selected.name)} · ${stats.studiedCount} / ${cards.length} studied · ${stats.due.length} due</span></div>${revealed ? entryCard(studyCardId) : `<div class="study-front"><p class="muted">What does this word mean?</p><div class="study-word" dir="rtl" lang="ar">${esc(entry.word)}</div><button class="button" id="reveal">Reveal answer</button></div>`}${revealed ? `<div class="ratings">${[['failed','Fail'],['difficult','Hard'],['medium','Medium'],['easy','Easy']].map(([grade,label]) => `<button class="rating ${grade}" data-study-grade="${grade}">${label}<small>${duration(progress, grade)}</small></button>`).join('')}</div>` : ''}`;
 }
 function renderAuth() {
   if (!cloud) return;
@@ -470,6 +497,16 @@ document.addEventListener('click', async event => {
       writeDictionaryLocation({letter:alphabet.find(([id]) => id === selectedLetter)?.[1] || selectedLetter});
     }
     else if (button.id === 'reveal') {revealed = true; renderStudy();}
+    else if (button.dataset.studyGrade && studyId && studyCardId && revealed) {
+      const current = cloud.studies[studyId], progress = {...(current.progress || {})};
+      const oldCard = progress[studyCardId] || {due:0,interval:0,ease:2.5,reviews:0,lapses:0,updatedAt:0};
+      const nextCard = schedule(oldCard, button.dataset.studyGrade, Math.max(Date.now(), oldCard.updatedAt + 1));
+      progress[studyCardId] = nextCard;
+      const nextStudy = {...current, progress, updatedAt:Math.max(Date.now(), current.updatedAt + 1)};
+      const nextDue = (current.cards || []).filter(entryId => entries.has(entryId) && (progress[entryId]?.due || 0) <= Date.now());
+      studyCardId = nextDue[0] || null; revealed = false;
+      cloud.mutateStudy(studyId, nextStudy);
+    }
     else if (button.dataset.grade && studyId && revealed && !cloud.studies?.[studyId]) {
       const id = studyId; const next = schedule(cloud.deck[id], button.dataset.grade, Math.max(Date.now(), cloud.deck[id].updatedAt + 1));
       studyId = null; revealed = false; studied++; cloud.mutate(id, next);
@@ -487,7 +524,7 @@ document.addEventListener('click', async event => {
 $('#study-area').addEventListener('submit', event => {
   if (event.target.id !== 'create-study') return;
   event.preventDefault();
-  void createStudy($('#study-range').value).catch(error => {studyBusy = false; notice(error.message); renderStudy();});
+  void createStudy($('#study-range').value, $('#only-new-words').checked).catch(error => {studyBusy = false; notice(error.message); renderStudy();});
 });
 $('#verse-form').addEventListener('submit', event => {event.preventDefault(); if (manifest) void loadVerse($('#reference').value);});
 $('#toc-search').addEventListener('input', event => {tocQuery = event.target.value; tocMatchIndex = 0; renderToc();});
