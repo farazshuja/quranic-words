@@ -38,5 +38,5 @@ main{max-width:1180px;margin:auto;padding:42px 36px 64px;min-height:calc(100vh -
 .study-item .study-open{min-width:0}.study-item .study-open strong{display:block}
 .card-actions{display:flex;align-items:center;gap:8px;margin-left:auto}.card-actions .heart{flex:0 0 43px}.card-actions .icon-button{flex:0 0 36px}.entry-header .card-actions{padding:0}.book-icon{font-size:22px}
 .study-asked-ago{font-size:11px;white-space:nowrap;color:var(--muted)}
-@media(max-width:600px){.study-dialog{width:100vw;height:100dvh;max-height:100dvh;margin:0;border-radius:0}.study-modal-actions{flex-wrap:wrap;padding-inline:12px}.study-modal-actions .ratings{min-width:100%;order:1}.study-front{padding:40px 16px}.study-word{font-size:58px}}
+@media(max-width:600px){.study-dialog{position:fixed;inset:0;width:100%;max-width:none;height:100dvh;max-height:100dvh;margin:0;border-radius:0}.study-modal-actions{flex-wrap:wrap;padding-inline:12px}.study-modal-actions .ratings{min-width:100%;order:1}.study-front{padding:40px 16px}.study-word{font-size:58px}}
 
