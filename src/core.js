@@ -96,8 +96,8 @@ export function schedule(card, grade, now = Date.now()) {
   const day = 86400000;
   const ease = Math.max(1.3, (card.ease || 2.5) + ({easy: .15, medium: 0, difficult: -.15, failed: -.2}[grade]));
   const interval = grade === 'failed' ? 10 / 1440 : grade === 'difficult' ? Math.max(1, (card.interval || 0) * 1.2)
-    : grade === 'medium' ? Math.max(1, Math.round((card.interval || .4) * ease))
-    : Math.max(4, Math.round((card.interval || 1) * ease * 1.3));
+    : grade === 'medium' ? (card.interval || card.reviews ? Math.max(1, Math.round((card.interval || .4) * ease)) : 2)
+    : (card.interval || card.reviews ? Math.max(4, Math.round((card.interval || 1) * ease * 1.3)) : 3);
   return {...card, ease, interval, due: now + interval * day, reviews: (card.reviews || 0) + 1,
     lapses: (card.lapses || 0) + (grade === 'failed' ? 1 : 0), grade, updatedAt: now};
 }
