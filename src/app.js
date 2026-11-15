@@ -3,6 +3,14 @@ import {alphabet, normalize, searchToc, keyboardMap, altGrMap, parseReference, v
 import {FirebaseCards} from './firebase-cards.js';
 
 const $ = selector => document.querySelector(selector);
+// Deployments may live in a subdirectory (e.g. GitHub Pages project sites); routes are appended to this root.
+const APP_ROOT = (() => {
+  const routes = ['q', 'dictionary', 'study', 'privacy'];
+  const parts = location.pathname.split('/').filter(Boolean);
+  let depth = 0;
+  while (depth < parts.length && !routes.includes(parts[depth])) depth++;
+  return depth ? `/${parts.slice(0, depth).join('/')}/` : '/';
+})();
 let entries = new Map(), toc = {}, manifest, config, cloud;
 let currentRef = '1:1', currentWords = [], readerId = null, dialogId = null, requestId = 0;
 let entryContext = null;
@@ -18,7 +26,8 @@ function notice(message) {
 function readLocal(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch {return fallback;} }
 function storeLocal(key, value) {try { localStorage.setItem(key, JSON.stringify(value)); } catch {notice('Browser storage is unavailable. Your reading position cannot be remembered.');} }
 function readLocation() {
-  const parts = decodeURIComponent(location.pathname).split('/').filter(Boolean);
+  const pathname = APP_ROOT === '/' ? location.pathname : location.pathname.slice(APP_ROOT.length - 1);
+  const parts = decodeURIComponent(pathname).split('/').filter(Boolean);
   const params = new URLSearchParams(location.search);
   if (parts[0] === 'q' && parts.length >= 3) return {page:'read', reference:`${parts[1]}:${parts[2]}`, params, bare:null};
   if (parts[0] === 'dictionary') return {page:'dictionary', params, bare:null};
@@ -29,7 +38,7 @@ function readLocation() {
 function writeLocation(path, values = {}, replace = false) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(values)) if (value) params.set(key, value);
-  const query = params.toString(), url = `${path}${query ? `?${query}` : ''}`;
+  const query = params.toString(), url = `${APP_ROOT === '/' ? '' : APP_ROOT.replace(/\/$/, '')}${path}${query ? `?${query}` : ''}`;
   (replace ? history.replaceState : history.pushState).call(history, history.state, '', url);
 }
 function writeDictionaryLocation(values = {}) { writeLocation('/dictionary', values); }
@@ -96,7 +105,7 @@ function entryCard(id, inDialog = false) {
   const entry = entries.get(id);
   if (!entry) return '<div class="empty"><h2>No word found</h2><p>This word has not been linked to a dictionary entry yet.</p></div>';
   const children = [...entries.values()].filter(e => e.rootId === id && e.id !== id);
-  const root = entry.root && entry.root !== entry.word ? `<div class="form-item"><span>Root</span>${entry.rootId ? `<a class="root-link" href="/dictionary?card=${encodeURIComponent(cardUrlReference(entries.get(entry.rootId)))}" data-entry="${esc(entry.rootId)}">${esc(entry.root)} ↗</a>` : esc(entry.root)}</div>` : '';
+  const root = entry.root && entry.root !== entry.word ? `<div class="form-item"><span>Root</span>${entry.rootId ? `<a class="root-link" href="dictionary?card=${encodeURIComponent(cardUrlReference(entries.get(entry.rootId)))}" data-entry="${esc(entry.rootId)}">${esc(entry.root)} ↗</a>` : esc(entry.root)}</div>` : '';
   const sequence = entryContext?.ids || [];
   const position = sequence.indexOf(id);
   const previous = position > 0 ? sequence[position - 1] : '';
@@ -497,7 +506,7 @@ document.addEventListener('click', async event => {
   }
   const rootLink = event.target.closest('a.root-link[data-entry]');
   if (rootLink) { event.preventDefault(); openEntry(rootLink.dataset.entry, readLocation().page === 'dictionary'); return; }
-  const routeLink = event.target.closest('a[data-page], a.brand, footer a[href="/privacy"]');
+  const routeLink = event.target.closest('a[data-page], a.brand, footer a[href="privacy"]');
   if (routeLink) {
     event.preventDefault();
     const target = routeLink.dataset.page === 'dictionary' ? '/dictionary' : routeLink.dataset.page === 'study' ? '/study' : routeLink.dataset.page === 'read' || routeLink.classList.contains('brand') ? `/q/${currentRef.replace(':','/')}` : '/privacy';

@@ -3,7 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <base href="/">
+  <script>
+    // App root works when hosted at a domain root or in a subdirectory (e.g. GitHub Pages project sites).
+    (() => {
+      const routes = ['q', 'dictionary', 'study', 'privacy'];
+      const parts = location.pathname.split('/').filter(Boolean);
+      let depth = 0;
+      while (depth < parts.length && !routes.includes(parts[depth])) depth++;
+      document.write(`<base href="${location.pathname.split('/').slice(0, depth + 1).join('/')}/">`);
+    })();
+  </script>
   <meta name="theme-color" content="#2563eb">
   <meta name="description" content="Explore Quranic words, their roots and Urdu meanings. Save and study your own flashcards.">
   <link rel="icon" href="./quranic-words-logo.svg" type="image/svg+xml">
@@ -16,9 +25,9 @@
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/q/1/1"><img class="brand-logo" src="./quranic-words-logo.svg" alt=""><span>Quranic Words<small>Read · Understand · Remember</small></span></a>
+    <a class="brand" href="q/1/1"><img class="brand-logo" src="./quranic-words-logo.svg" alt=""><span>Quranic Words<small>Read · Understand · Remember</small></span></a>
     <nav aria-label="Main navigation">
-      <a href="/q/1/1" data-page="read">Read</a><a href="/dictionary" data-page="dictionary">Dictionary</a><a href="/study" data-page="study">Study</a>
+      <a href="q/1/1" data-page="read">Read</a><a href="dictionary" data-page="dictionary">Dictionary</a><a href="study" data-page="study">Study</a>
     </nav>
     <button id="account" class="button secondary">Sign in with Gmail</button>
   </header>
@@ -32,7 +41,7 @@
     <section id="study" class="page" hidden><div class="section-heading"><div><p class="eyebrow">A SMALL DAILY PRACTICE</p><h1>Let the words stay with you.</h1><p class="muted">Recall the meaning, reveal the answer, then choose how it felt.</p></div></div><div class="auth-gate"></div><div class="private-content" hidden><div id="study-area"></div></div></section>
     <section id="privacy" class="page" hidden><h1>Your words. Your data.</h1><div class="prose"><p>Reading and dictionary lookup do not require an account. Your last verse is stored in this browser.</p><p>Firebase Authentication uses Google sign-in and permits only the configured Gmail account. Cards, studies and the last opened verse are stored in Firestore under your Firebase user ID. Firestore security rules enforce the email allowlist.</p><p>A copy of cards and studies is kept in this browser as a recovery backup. Sign-out hides your data; “Clear local card data” removes the browser cache. Firebase handles authentication sessions.</p><p>Google receives authentication requests; Firebase receives authentication and Firestore requests; Al Quran Cloud receives verse lookup requests; Google Fonts receives font requests.</p><p>To remove cloud data, delete the user’s documents from Firestore and revoke Google sign-in in Firebase Authentication. Clearing local data afterward prevents browser copies from being restored.</p><button id="clear-local" class="button secondary">Clear local card data</button></div></section>
   </main>
-  <footer><span>Built for a thoughtful reading practice.</span><a href="/privacy">Privacy &amp; data</a><a href="https://alquran.cloud" target="_blank" rel="noopener">Verses by Al Quran Cloud ↗</a></footer>
+  <footer><span>Built for a thoughtful reading practice.</span><a href="privacy">Privacy &amp; data</a><a href="https://alquran.cloud" target="_blank" rel="noopener">Verses by Al Quran Cloud ↗</a></footer>
   <dialog id="detail-dialog" aria-label="Dictionary entry"><div id="dialog-card"></div></dialog>
   <dialog id="study-dialog" class="study-dialog" aria-label="Study cards"><div id="study-dialog-content"></div></dialog>
   <dialog id="keyboard-layout-dialog" class="keyboard-layout-dialog" aria-label="Arabic keyboard layout"><button id="close-keyboard-layout" class="icon-button keyboard-dialog-close" aria-label="Close keyboard layout">×</button><div id="toc-keyboard-layout" class="toc-keyboard-layout" role="region" aria-label="Arabic Buckwalter keyboard layout"></div></dialog>
