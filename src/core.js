@@ -1,4 +1,4 @@
-export const alphabet = Object.entries({alif:'أ',ba:'ب',ta:'ت',tha:'ث',jeem:'ج',haa:'ح',khaa:'خ',dal:'د',dhal:'ذ',raa:'ر',zaay:'ز',seen:'س',sheen:'ش',saad:'ص',daad:'ض',taa:'ط',dhaa:'ظ',ayen:'ع',ghayen:'غ',faa:'ف',qaf:'ق',kaf:'ك',laam:'ل',meem:'م',noon:'ن',haa2:'ه',waw:'و',yaa:'ي'});
+export const alphabet = Object.entries({alif:'أ',ba:'ب',ta:'ت',tha:'ث',jeem:'ج',ha:'ح',khaa:'خ',dal:'د',dhal:'ذ',raa:'ر',zaay:'ز',seen:'س',sheen:'ش',saad:'ص',daad:'ض',taa:'ط',dhaa:'ظ',ayen:'ع',ghayen:'غ',faa:'ف',qaf:'ق',kaf:'ك',laam:'ل',meem:'م',noon:'ن',waw:'و',haa:'ه',yaa:'ي'});
 
 export function normalize(text = '') {
   return text.normalize('NFKD').replace(/[\p{M}\u0640\u06D6-\u06ED]/gu, '').replace(/[أإآٱ]/g, 'ا').replace(/ى/g, 'ي').replace(/[^\p{L}]/gu, '');
