@@ -321,8 +321,15 @@ function parseStudyRange(input) {
   const value = input.trim();
   let match = value.match(/^(\d{1,3})$/);
   if (match) {const surah = Number(match[1]); if (!manifest.surahs[surah]) throw new Error('Enter a Surah number from 1 to 114.'); return {start:[surah,1], end:[surah,manifest.surahs[surah]], name:String(surah)};}
+  match = value.match(/^(\d{1,3})\s*-\s*(\d{1,3})$/);
+  if (match) {
+    const [,first,last] = match.map(Number);
+    if (!manifest.surahs[first] || !manifest.surahs[last]) throw new Error('Enter Surah numbers from 1 to 114.');
+    if (first > last) throw new Error('The range must start before it ends.');
+    return {start:[first,1], end:[last,manifest.surahs[last]], name:`${first}-${last}`};
+  }
   match = value.match(/^(\d{1,3})\s*:\s*(\d{1,3})\s*(?:-|–|—)\s*(?:(\d{1,3})\s*:\s*)?(\d{1,3})$/);
-  if (!match) throw new Error('Use a range like 1:1-3:73, or enter one Surah number such as 23.');
+  if (!match) throw new Error('Use a range like 1:1-3:73 or 23-25, or enter one Surah number such as 23.');
   const [,ss,aa,es,ea] = match;
   const start = [Number(ss),Number(aa)], end = [Number(es || ss),Number(ea)];
   if (!manifest.surahs[start[0]] || start[1] < 1 || start[1] > manifest.surahs[start[0]] || !manifest.surahs[end[0]] || end[1] < 1 || end[1] > manifest.surahs[end[0]]) throw new Error('That study range contains a verse that does not exist.');
@@ -397,7 +404,7 @@ function renderStudy() {
   const active = studyId ? studies.find(([id]) => id === studyId || id === (studies.find(([,item]) => item.name === studyId)?.[0])) : null;
   if (!active) {
     const list = studies.length ? `<div class="study-list">${studies.map(([id, study]) => {const stats=studyStats(study);return `<article class="study-item"><button class="study-open" data-study="${esc(id)}"><strong>${esc(study.name)}</strong><small>${stats.studiedCount} / ${stats.cards.length} studied · ${stats.due.length} due${stats.upcoming.length ? ` · ${esc(dueSummary(stats.upcoming))}` : ''}</small></button><button class="icon-button book-icon" data-browse-study="${esc(id)}" aria-label="Browse ${esc(study.name)} cards" title="Browse cards">▤</button>${id !== 'General' ? `<button class="icon-button" data-delete-study="${esc(id)}" aria-label="Delete ${esc(study.name)}" title="Delete study">×</button>` : ''}</article>`;}).join('')}</div>` : '';
-    $('#study-area').innerHTML = `<form id="create-study" class="study-create"><label for="study-range">Create a study</label><div><input id="study-range" placeholder="1:1-3:73 or 23" required autocomplete="off"><button class="button" type="submit">Create study</button></div><label class="study-checkbox"><input id="only-new-words" type="checkbox"> Only new words</label><p class="muted">Use a verse range such as 1:1-3:73, or enter a Surah number for the whole Surah.</p></form>${list}`;
+    $('#study-area').innerHTML = `<form id="create-study" class="study-create"><label for="study-range">Create a study</label><div><input id="study-range" placeholder="1:1-3:73, 23 or 23-25" required autocomplete="off"><button class="button" type="submit">Create study</button></div><label class="study-checkbox"><input id="only-new-words" type="checkbox"> Only new words</label><p class="muted">Use a verse range such as 1:1-3:73, a Surah number such as 23 for the whole Surah, or a Surah range such as 23-25.</p></form>${list}`;
     return;
   }
   const [id, selected] = active;
