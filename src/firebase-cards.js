@@ -88,7 +88,7 @@ export class FirebaseCards {
       metadata.forEach(item => {const data = item.data(); if (item.id === 'reading' && data.lastVerse) {this.lastVerse = data.lastVerse; this.lastVerseUpdatedAt = data.updatedAt || 0;}});
       if (this.lastVerse) pending.push(setDoc(doc(this.db, 'users', this.user.sub, 'metadata', 'reading'), {lastVerse:this.lastVerse, updatedAt:this.lastVerseUpdatedAt}));
       await Promise.all(pending);
-      this.backup(); this.status = `Saved to Firebase · ${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`;
+      this.backup(); this.status = 'Up to date.';
     } catch (error) {
       this.status = `${error.message} ${this.backupAvailable === false ? 'Keep this page open to preserve local changes.' : 'Your browser backup remains available.'}`;
       throw error;
@@ -99,7 +99,7 @@ export class FirebaseCards {
     this.busy = true; this.status = 'Saving to Firebase…'; this.emit();
     try {
       await setDoc(doc(this.db, 'users', this.user.sub, path, id), data);
-      this.backup(); this.status = `Saved to Firebase · ${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`;
+      this.backup(); this.status = 'Up to date.';
     } catch (error) { this.status = `${error.message} Your browser backup remains available.`; throw error; }
     finally {this.busy = false; this.emit();}
   }

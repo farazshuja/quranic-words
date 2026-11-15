@@ -5,7 +5,8 @@ import {FirebaseCards} from './firebase-cards.js';
 const $ = selector => document.querySelector(selector);
 let entries = new Map(), toc = {}, manifest, config, cloud;
 let currentRef = '1:1', currentWords = [], readerId = null, dialogId = null, requestId = 0;
-let selectedLetter = 'alif', studyId = null, studyCardId = null, revealed = false, studied = 0;
+let entryContext = null;
+let selectedLetter = 'alif', studyId = null, studyCardId = null, revealed = false, browseMode = false, studied = 0;
 let tocQuery = '', tocInputMode = 'auto', tocMatchIndex = 0;
 const surahCache = new Map();
 let qwords = null, studyBusy = false;
@@ -17,22 +18,22 @@ function notice(message) {
 function readLocal(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch {return fallback;} }
 function storeLocal(key, value) {try { localStorage.setItem(key, JSON.stringify(value)); } catch {notice('Browser storage is unavailable. Your reading position cannot be remembered.');} }
 function readLocation() {
-  const hash = location.hash.slice(1);
-  const separator = hash.indexOf('?');
-  const page = (separator < 0 ? hash : hash.slice(0, separator)) || 'read';
-  const raw = separator < 0 ? '' : hash.slice(separator + 1);
-  const params = new URLSearchParams(raw);
-  const bare = raw && !raw.includes('=') ? params.keys().next().value : null;
-  return {page, params, bare};
+  const parts = decodeURIComponent(location.pathname).split('/').filter(Boolean);
+  const params = new URLSearchParams(location.search);
+  if (parts[0] === 'q' && parts.length >= 3) return {page:'read', reference:`${parts[1]}:${parts[2]}`, params, bare:null};
+  if (parts[0] === 'dictionary') return {page:'dictionary', params, bare:null};
+  if (parts[0] === 'study') return {page:'study', study:parts[1] || null, params, bare:null};
+  if (parts[0] === 'privacy') return {page:'privacy', params, bare:null};
+  return {page:'read', reference:null, params, bare:null};
 }
-function writeHash(page, values = {}) {
+function writeLocation(path, values = {}, replace = false) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(values)) if (value) params.set(key, value);
-  const query = params.toString();
-  history.replaceState(history.state, '', `${location.pathname}${location.search}#${page}${query ? `?${query}` : ''}`);
+  const query = params.toString(), url = `${path}${query ? `?${query}` : ''}`;
+  (replace ? history.replaceState : history.pushState).call(history, history.state, '', url);
 }
-function writeDictionaryLocation(values = {}) { writeHash('dictionary', values); }
-function writeVerseLocation(reference) { writeHash('read', {verse:reference}); }
+function writeDictionaryLocation(values = {}) { writeLocation('/dictionary', values); }
+function writeVerseLocation(reference, values = {}, replace = false) { writeLocation(`/q/${reference.replace(':','/')}`, values, replace); }
 function cardUrlReference(entry) { return entry.word.includes('/') ? entry.word.replaceAll('/', '-') : entry.word; }
 function findLetterId(value) {
   if (!value) return null;
@@ -77,7 +78,7 @@ function markdown(text) {
     for (const {index, label, reference} of matches) {
       fragment.append(document.createTextNode(node.textContent.slice(offset, index)));
       const link = document.createElement('a');
-      link.href = '#read'; link.dataset.verse = reference; link.className = 'verse-reference';
+      link.href = `/q/${reference.replace(':','/')}`; link.dataset.verse = reference; link.className = 'verse-reference';
       link.dir = 'ltr'; link.textContent = label;
       link.setAttribute('aria-label', `Open verse ${reference}`);
       fragment.append(link); offset = index + label.length;
@@ -95,20 +96,38 @@ function entryCard(id, inDialog = false) {
   const entry = entries.get(id);
   if (!entry) return '<div class="empty"><h2>No word found</h2><p>This word has not been linked to a dictionary entry yet.</p></div>';
   const children = [...entries.values()].filter(e => e.rootId === id && e.id !== id);
-  const root = entry.root && entry.root !== entry.word ? `<div class="form-item"><span>Root</span>${entry.rootId ? `<a class="root-link" href="#dictionary?card=${encodeURIComponent(cardUrlReference(entries.get(entry.rootId)))}" data-entry="${esc(entry.rootId)}">${esc(entry.root)} ↗</a>` : esc(entry.root)}</div>` : '';
-  return `<article class="entry-card"><header class="entry-header"><div class="entry-heading"><h2 dir="rtl" lang="ar">${esc(entry.word)}</h2><small>${esc(entry.id)}</small></div>${children.length ? '<span class="badge">ROOT</span>' : ''}${inDialog ? '<button id="close-dialog" class="icon-button card-close" aria-label="Close dictionary card">×</button>' : ''}<button class="copy-card icon-button" data-copy-card="${esc(id)}" aria-label="Copy Urdu markdown" title="Copy Urdu markdown">⧉</button>${heart(id)}</header><div class="entry-body"><div class="forms" dir="rtl">${root}${entry.nouns ? `<div class="form-item"><span>Nouns</span>${esc(entry.nouns)}</div>` : ''}${entry.verbs ? `<div class="form-item"><span>Verbs</span>${esc(entry.verbs.split('|')[0].trim())}</div>` : ''}</div>${entry.markdown_ur ? `<div class="urdu" lang="ur" dir="rtl">${markdown(entry.markdown_ur)}</div>` : '<p class="muted">An Urdu explanation is not available for this entry yet.</p>'}${children.length ? `<p class="muted">Words from this root</p><div class="related">${children.map(e => `<button class="word-chip" data-entry="${esc(e.id)}">${esc(e.word)}</button>`).join('')}</div>` : ''}</div></article>`;
+  const root = entry.root && entry.root !== entry.word ? `<div class="form-item"><span>Root</span>${entry.rootId ? `<a class="root-link" href="/dictionary?card=${encodeURIComponent(cardUrlReference(entries.get(entry.rootId)))}" data-entry="${esc(entry.rootId)}">${esc(entry.root)} ↗</a>` : esc(entry.root)}</div>` : '';
+  const sequence = entryContext?.ids || [];
+  const position = sequence.indexOf(id);
+  const previous = position > 0 ? sequence[position - 1] : '';
+  const next = position >= 0 && position < sequence.length - 1 ? sequence[position + 1] : '';
+  const showSequenceNav = entryContext && (entryContext.type !== 'study' || browseMode);
+  const nav = showSequenceNav ? `<button class="icon-button" data-entry-nav="${esc(next)}" aria-label="Next word" title="Next word" ${next ? '' : 'disabled'}>→</button><button class="icon-button" data-entry-nav="${esc(previous)}" aria-label="Previous word" title="Previous word" ${previous ? '' : 'disabled'}>←</button>` : '';
+  const askedAgo = entryContext?.type === 'study' && browseMode && entryContext.askedAt ? `<span class="study-asked-ago">${esc(timeAgo(entryContext.askedAt))}</span>` : '';
+  const close = inDialog ? entryContext?.type === 'study' ? '<button class="icon-button card-close" data-study-browse-close aria-label="Close card" title="Close card">×</button>' : '<button id="close-dialog" class="icon-button card-close" aria-label="Close dictionary card" title="Close">×</button>' : '';
+  const controls = `<div class="card-actions" dir="rtl">${close}${heart(id)}${askedAgo}${nav}<button class="copy-card icon-button" data-copy-card="${esc(id)}" aria-label="Copy Urdu markdown" title="Copy Urdu markdown">⧉</button></div>`;
+  return `<article class="entry-card"><header class="entry-header"><div class="entry-heading"><h2 dir="rtl" lang="ar">${esc(entry.word)}</h2><small>${esc(entry.id)}</small></div>${children.length ? '<span class="badge">ROOT</span>' : ''}${controls}</header><div class="entry-body"><div class="forms" dir="rtl">${root}${entry.nouns ? `<div class="form-item"><span>Nouns</span>${esc(entry.nouns)}</div>` : ''}${entry.verbs ? `<div class="form-item"><span>Verbs</span>${esc(entry.verbs.split('|')[0].trim())}</div>` : ''}</div>${entry.markdown_ur ? `<div class="urdu" lang="ur" dir="rtl">${markdown(entry.markdown_ur)}</div>` : '<p class="muted">An Urdu explanation is not available for this entry yet.</p>'}${children.length ? `<p class="muted">Words from this root</p><div class="related">${children.map(e => `<button class="word-chip" data-entry="${esc(e.id)}">${esc(e.word)}</button>`).join('')}</div>` : ''}</div></article>`;
 }
 function openEntry(id, updateLocation = readLocation().page === 'dictionary') {
+  const page = readLocation().page;
+  if (page === 'read') {
+    const ids = currentWords.map(word => word.entryId).filter(entryId => entries.has(entryId));
+    entryContext = {type:'read', ids, reference:currentRef};
+    writeVerseLocation(currentRef, {card:cardUrlReference(entries.get(id))});
+  } else if (page === 'dictionary') {
+    entryContext = {type:'dictionary', ids:[...entries.keys()]};
+    if (updateLocation) writeDictionaryLocation({card:cardUrlReference(entries.get(id))});
+  } else entryContext = null;
   dialogId = id; $('#dialog-card').innerHTML = entryCard(id, true);
   if (!$('#detail-dialog').open) $('#detail-dialog').showModal();
   $('#detail-dialog').scrollTop = 0;
-  if (updateLocation) writeDictionaryLocation({card:entries.has(id) ? cardUrlReference(entries.get(id)) : id});
 }
 function closeEntryDialog() {
   if ($('#detail-dialog').open) $('#detail-dialog').close();
   dialogId = null;
   const state = readLocation();
   if (state.page === 'dictionary' && state.params.has('card')) writeDictionaryLocation({letter:alphabet.find(([id]) => id === selectedLetter)?.[1] || ''});
+  else if (state.page === 'read' && state.params.has('card')) writeVerseLocation(currentRef);
 }
 function refreshHearts() {
   for (const button of document.querySelectorAll('[data-heart]')) {
@@ -122,6 +141,10 @@ function toggleCard(id) {
   const old = cloud.deck[id]; const now = Math.max(Date.now(), (old?.updatedAt || 0) + 1);
   if (old && !old.deleted) cloud.mutate(id, {...old, deleted:true, updatedAt:now});
   else cloud.mutate(id, {due:now, updatedAt:now, interval:0, ease:2.5, reviews:0, lapses:0, deleted:false});
+  const general = cloud.studies.General || {name:'General',cards:[],progress:{},updatedAt:0,deleted:false,permanent:true};
+  const cards = new Set(general.cards || []);
+  if (old && !old.deleted) cards.delete(id); else cards.add(id);
+  cloud.mutateStudy('General', {...general, cards:[...cards], updatedAt:Math.max(Date.now(), general.updatedAt + 1), deleted:false, permanent:true});
 }
 
 async function loadVerse(input) {
@@ -145,13 +168,18 @@ async function loadVerse(input) {
     const aligned = alignWords(result.data.text, source, reference);
     currentRef = reference; currentWords = aligned.words;
     cloud?.setLastVerse(reference);
-    if (readLocation().page === 'read') writeVerseLocation(reference);
+    if (readLocation().page === 'read') {const state=readLocation(); writeVerseLocation(reference, state.reference === reference && state.params.has('card') ? {card:state.params.get('card')} : {}, state.reference === reference);}
     $('#reference').value = reference;
     $('#verse-label').textContent = `${result.data.surah?.englishName || 'Surah ' + surah} · ${reference}`;
     $('#verse-status').textContent = [result.cached ? 'Showing your last cached verse; the Quran API is unavailable.' : '', !aligned.aligned ? 'Some words could not be aligned with the dictionary’s word list.' : ''].filter(Boolean).join(' ');
     $('#verse-words').innerHTML = currentWords.map((w, i) => `<button class="verse-word ${entries.has(w.entryId) ? '' : 'unmapped'}" data-word="${i}" aria-label="Look up ${esc(w.arabic)}">${esc(w.arabic)}</button>`).join('');
     storeLocal('qw.lastVerse', {reference, data:result.data});
-    readerId = null; $('#reader-card').innerHTML = '<div class="empty"><span class="empty-symbol" aria-hidden="true">✧</span><h2>Follow a word to its meaning.</h2><p>Select a word above to explore its Urdu explanation and root.</p></div>';
+    readerId = null;
+    const cardRef = readLocation().page === 'read' ? readLocation().params.get('card') : null;
+    if (cardRef) {
+      const cardId = findEntryReference(cardRef);
+      if (cardId) {entryContext={type:'read',ids:currentWords.map(word=>word.entryId).filter(id=>entries.has(id)),reference}; dialogId=cardId; $('#dialog-card').innerHTML=entryCard(cardId,true); if(!$('#detail-dialog').open) $('#detail-dialog').showModal();}
+    }
   } catch (error) {if (ticket === requestId) $('#verse-status').textContent = `${error.message} Check your connection and try Go again.`;}
   finally {if (ticket === requestId) $('#go').disabled = false;}
 }
@@ -245,16 +273,20 @@ function handleTocBeforeInput(event) {
   requestAnimationFrame(() => input.setSelectionRange(start + converted.length, start + converted.length));
 }
 function savedCards() { return Object.entries(cloud.deck).filter(([id, card]) => !card.deleted && entries.has(id)).sort((a, b) => a[1].due - b[1].due); }
-function renderCards() {
-  if (!cloud.authorized) {$('#cards-list').innerHTML = ''; return;}
-  const cards = savedCards(); const due = cards.filter(([, c]) => c.due <= Date.now()).length;
-  $('#cards-count').textContent = `${cards.length} saved ${cards.length === 1 ? 'word' : 'words'} · ${due} due for review`;
-  const query = normalize($('#cards-search').value);
-  const visible = cards.filter(([id]) => normalize(entries.get(id).word).includes(query));
-  $('#cards-list').innerHTML = visible.map(([id, c]) => `<article class="saved-tile"><button data-entry="${esc(id)}" dir="rtl" lang="ar">${esc(entries.get(id).word)}</button><div class="tile-foot"><small>${c.due <= Date.now() ? 'Ready to review' : `Due ${esc(new Date(c.due).toLocaleDateString())}`}<br>${c.reviews || 0} reviews${c.grade ? ' · Last: ' + esc(c.grade) : ''}</small>${heart(id)}</div></article>`).join('') || `<div class="empty"><h2>${cards.length ? 'No matching cards' : 'Your collection starts with one word.'}</h2><p>${cards.length ? 'Try another word.' : 'Open a dictionary entry and select its heart to save it here.'}</p><a href="#read">Explore a verse →</a></div>`;
+function ensureGeneralStudy() {
+  if (!cloud?.authorized) return;
+  const old = cloud.studies.General;
+  const cards = savedCards().map(([id]) => id);
+  if (old && !old.deleted && cards.every(id => (old.cards || []).includes(id)) && (old.cards || []).every(id => cards.includes(id))) return;
+  cloud.mutateStudy('General', {name:'General', cards, progress:old?.progress || {}, updatedAt:Math.max(Date.now(), (old?.updatedAt || 0) + 1), deleted:false, permanent:true});
 }
 function duration(card, grade) {
   const next = schedule(card, grade); return next.interval < 1 ? '10 minutes' : `${Math.round(next.interval)} ${Math.round(next.interval) === 1 ? 'day' : 'days'}`;
+}
+function timeAgo(timestamp) {
+  const days = Math.max(0, Math.floor((Date.now() - timestamp) / 86400000));
+  if (days === 0) return 'Asked today';
+  return `${days} day${days === 1 ? '' : 's'} ago`;
 }
 function studyStats(study) {
   const cards = (study.cards || []).filter(id => entries.has(id));
@@ -322,23 +354,54 @@ async function createStudy(input, onlyNew = false) {
     cloud.mutateStudy(range.name, study); studyId = range.name;
   } finally {studyBusy = false; renderStudy();}
 }
+async function recoverStudyCards(id, study) {
+  const valid = (study.cards || []).filter(cardId => entries.has(cardId));
+  if (valid.length) return valid;
+  if (!qwords) qwords = await json('./data/study-index.json');
+  const numeric = Number(study.name) || Number(id);
+  const start = study.start?.split(':').map(Number) || (Number.isInteger(numeric) && manifest.surahs[numeric] ? [numeric,1] : null);
+  const end = study.end?.split(':').map(Number) || (start && Number.isInteger(numeric) && manifest.surahs[numeric] ? [numeric,manifest.surahs[numeric]] : start);
+  if (!start || !end) return valid;
+  const before = ([s,a]) => s < start[0] || (s === start[0] && a < start[1]);
+  const after = ([s,a]) => s > end[0] || (s === end[0] && a > end[1]);
+  const ids = new Set();
+  for (const surah of qwords) {
+    if (surah.surah_no < start[0] || surah.surah_no > end[0]) continue;
+    for (const ayah of surah.ayahs) {
+      const reference = [surah.surah_no, ayah.no];
+      if (before(reference) || after(reference)) continue;
+      for (const cardId of ayah.entries || []) {
+        const entry = entries.get(cardId);
+        if (entry && (entry.nouns?.trim() || entry.verbs?.trim())) ids.add(cardId);
+      }
+    }
+  }
+  const cards = [...ids];
+  if (cards.length) cloud.mutateStudy(id, {...study, cards, updatedAt:Math.max(Date.now(), (study.updatedAt || 0) + 1)});
+  return cards;
+}
 function renderStudy() {
   if (!cloud.authorized) {$('#study-area').innerHTML = ''; return;}
   if (studyBusy) return;
-  const studies = Object.entries(cloud.studies || {}).filter(([, study]) => !study.deleted).sort((a,b) => a[0].localeCompare(b[0]));
-  const active = studyId ? studies.find(([id]) => id === studyId) : null;
+  ensureGeneralStudy();
+  const studies = Object.entries(cloud.studies || {}).filter(([, study]) => !study.deleted).sort((a,b) => a[0] === 'General' ? -1 : b[0] === 'General' ? 1 : a[0].localeCompare(b[0]));
+  const active = studyId ? studies.find(([id]) => id === studyId || id === (studies.find(([,item]) => item.name === studyId)?.[0])) : null;
   if (!active) {
-    const list = studies.length ? `<div class="study-list">${studies.map(([id, study]) => {const stats=studyStats(study);return `<article class="study-item"><button class="study-open" data-study="${esc(id)}"><strong>${esc(study.name)}</strong><small>${stats.studiedCount} / ${stats.cards.length} studied · ${stats.due.length} due${stats.upcoming.length ? ` · ${esc(dueSummary(stats.upcoming))}` : ''}</small></button><button class="icon-button" data-delete-study="${esc(id)}" aria-label="Delete ${esc(study.name)}" title="Delete study">×</button></article>`;}).join('')}</div>` : '<div class="empty"><h2>No studies yet.</h2><p>Create one from a Surah or verse range.</p></div>';
+    const list = studies.length ? `<div class="study-list">${studies.map(([id, study]) => {const stats=studyStats(study);return `<article class="study-item"><button class="study-open" data-study="${esc(id)}"><strong>${esc(study.name)}</strong><small>${stats.studiedCount} / ${stats.cards.length} studied · ${stats.due.length} due${stats.upcoming.length ? ` · ${esc(dueSummary(stats.upcoming))}` : ''}</small></button><button class="icon-button book-icon" data-browse-study="${esc(id)}" aria-label="Browse ${esc(study.name)} cards" title="Browse cards">▤</button>${id !== 'General' ? `<button class="icon-button" data-delete-study="${esc(id)}" aria-label="Delete ${esc(study.name)}" title="Delete study">×</button>` : ''}</article>`;}).join('')}</div>` : '';
     $('#study-area').innerHTML = `<form id="create-study" class="study-create"><label for="study-range">Create a study</label><div><input id="study-range" placeholder="1:1-3:73 or 23" required autocomplete="off"><button class="button" type="submit">Create study</button></div><label class="study-checkbox"><input id="only-new-words" type="checkbox"> Only new words</label><p class="muted">Use a verse range such as 1:1-3:73, or enter a Surah number for the whole Surah.</p></form>${list}`;
     return;
   }
   const [id, selected] = active;
   const stats = studyStats(selected), cards = stats.cards;
-  if (!studyCardId || !stats.due.includes(studyCardId)) studyCardId = stats.due[0] || null;
-  if (!studyCardId) {$('#study-area').innerHTML = `<div class="study-top"><button class="text-button" data-studies>← All studies</button><strong>${esc(selected.name)}</strong></div><div class="empty"><span class="empty-symbol">✓</span><h2>${stats.studiedCount} / ${cards.length} cards studied</h2><p>You’re caught up for now.</p><p>${esc(dueSummary(stats.upcoming))}</p></div>`; return;}
+  if (!studyCardId || !cards.includes(studyCardId)) studyCardId = stats.due[0] || cards[0] || null;
+  if (!studyCardId) {$('#study-area').innerHTML = `<div class="empty"><span class="empty-symbol">✓</span><h2>${stats.studiedCount} / ${cards.length} cards studied</h2><p>This study has no cards yet.</p><button class="button secondary" data-studies>← All studies</button></div>`; return;}
   const entry = entries.get(studyCardId);
+  entryContext = {type:'study', ids:cards, askedAt:selected.progress?.[studyCardId]?.updatedAt || 0};
   const progress = selected.progress?.[studyCardId] || {due:0,interval:0,ease:2.5,reviews:0,lapses:0,updatedAt:0};
-  $('#study-area').innerHTML = `<div class="study-top"><button class="text-button" data-studies>← All studies</button><span>${esc(selected.name)} · ${stats.studiedCount} / ${cards.length} studied · ${stats.due.length} due</span></div>${revealed ? entryCard(studyCardId) : `<div class="study-front"><p class="muted">What does this word mean?</p><div class="study-word" dir="rtl" lang="ar">${esc(entry.word)}</div><button class="button" id="reveal">Reveal answer</button></div>`}${revealed ? `<div class="ratings">${[['failed','Fail'],['difficult','Hard'],['medium','Medium'],['easy','Easy']].map(([grade,label]) => `<button class="rating ${grade}" data-study-grade="${grade}">${label}<small>${duration(progress, grade)}</small></button>`).join('')}</div>` : ''}`;
+  const actions = browseMode ? '' : revealed ? `<div class="ratings">${[['failed','Again'],['difficult','Hard'],['medium','Medium'],['easy','Easy']].map(([grade,label]) => `<button class="rating ${grade}" data-study-grade="${grade}">${grade === 'failed' ? 'Again' : label}<small>${grade === 'failed' ? 'in 10m' : duration(progress, grade)}</small></button>`).join('')}</div>` : '';
+  const revealAttrs = !browseMode && !revealed ? 'class="study-modal-card study-click-to-reveal" role="button" tabindex="0" aria-label="Reveal meaning"' : 'class="study-modal-card"';
+  $('#study-dialog-content').innerHTML = `<div class="study-modal-top"><span>${esc(selected.name)} · ${stats.studiedCount} / ${cards.length} studied · ${stats.due.length} due</span><button class="icon-button" data-studies aria-label="Close study" title="Close">×</button></div><div ${revealAttrs}>${revealed ? entryCard(studyCardId) : `<div class="study-front"><div class="study-word" dir="rtl" lang="ar">${esc(entry.word)}</div></div>`}</div>${actions ? `<div class="study-modal-actions">${actions}</div>` : ''}`;
+  if (!$('#study-dialog').open) $('#study-dialog').showModal();
 }
 function renderAuth() {
   if (!cloud) return;
@@ -349,20 +412,20 @@ function renderAuth() {
     gate.innerHTML = `<div class="empty"><span class="empty-symbol" aria-hidden="true">♡</span><h2>A place for your own words.</h2><p>Sign in with ${esc(config.allowedEmail)} to save cards and studies.</p><p>Stored privately in Firebase.</p><button class="button" data-signin ${cloud.busy ? 'disabled' : ''}>${cloud.busy ? 'Connecting…' : 'Continue with Gmail'}</button>${!config.firebase?.apiKey ? '<p>Firebase is not configured yet.</p>' : ''}</div>`;
   }
   for (const panel of document.querySelectorAll('.private-content')) panel.hidden = !cloud.authorized;
-  for (const status of document.querySelectorAll('.sync-status')) status.textContent = cloud.status;
-  $('#sync').disabled = cloud.busy;
-  renderCards(); renderStudy(); refreshHearts();
+  renderStudy(); refreshHearts();
 }
 function route({skipVerseLoad = false} = {}) {
   const state = readLocation();
   const page = state.page;
-  const valid = ['read','dictionary','cards','study','privacy'].includes(page) ? page : 'read';
+  const valid = ['read','dictionary','study','privacy'].includes(page) ? page : 'read';
   for (const section of document.querySelectorAll('.page')) section.hidden = section.id !== valid;
   for (const link of document.querySelectorAll('nav a')) {
     link.classList.toggle('active', link.dataset.page === valid);
     if (link.dataset.page === valid) link.setAttribute('aria-current','page'); else link.removeAttribute('aria-current');
   }
-  if (valid !== 'dictionary' && $('#detail-dialog').open) $('#detail-dialog').close();
+  if (valid !== 'study') {studyId=null; studyCardId=null; revealed=false; if ($('#study-dialog').open) $('#study-dialog').close();}
+  if (valid === 'study' && !state.study && $('#study-dialog').open) $('#study-dialog').close();
+  if (valid !== 'dictionary' && valid !== 'read' && $('#detail-dialog').open) $('#detail-dialog').close();
   if (valid === 'dictionary') {
     const cardRef = state.params.get('card');
     const letterRef = state.params.get('letter') || state.bare;
@@ -379,13 +442,27 @@ function route({skipVerseLoad = false} = {}) {
     }
   }
   if (valid === 'read') {
-    const reference = state.params.get('verse') || state.bare;
+    const reference = state.reference;
     if (reference && !skipVerseLoad && manifest) {
       try {const parsed = parseReference(reference, manifest.surahs); if (parsed !== currentRef) void loadVerse(parsed);}
       catch (error) {notice(error.message);}
     } else if (!reference && !skipVerseLoad && currentRef) writeVerseLocation(currentRef);
+    const cardRef = state.params.get('card');
+    if (!cardRef && $('#detail-dialog').open) $('#detail-dialog').close();
+    else if (cardRef && currentWords.length && (!state.reference || state.reference === currentRef)) {
+      const cardId = findEntryReference(cardRef);
+      if (cardId) {entryContext={type:'read',ids:currentWords.map(word=>word.entryId).filter(id=>entries.has(id)),reference:currentRef}; dialogId=cardId; $('#dialog-card').innerHTML=entryCard(cardId,true); if(!$('#detail-dialog').open) $('#detail-dialog').showModal();}
+    }
   }
-  if (valid === 'cards' || valid === 'study') renderAuth();
+  if (valid === 'study') {
+    if (state.study) {
+      const studies = Object.entries(cloud?.studies || {});
+      studyId = studies.find(([id, item]) => id === state.study || item.name === state.study)?.[0] || state.study;
+      const selected = cloud?.studies?.[studyId];
+      if (selected) {const cards=(selected.cards || []).filter(id=>entries.has(id)); studyCardId=cards.find(id=>(selected.progress?.[id]?.due || 0)<=Date.now()) || cards[0] || null; revealed = false; browseMode=false;}
+    } else {studyId=null; studyCardId=null; browseMode=false;}
+    renderAuth();
+  }
 }
 
 async function start() {
@@ -396,7 +473,7 @@ async function start() {
     $('#dictionary-count').textContent = `${entries.size.toLocaleString()} entries, grouped by Arabic letter and root. Select any word to explore.`;
     $('#startup').hidden = true; renderAuth(); route({skipVerseLoad:true});
     const state = readLocation();
-    const requested = state.page === 'read' ? (state.params.get('verse') || state.bare) : null;
+    const requested = state.page === 'read' ? state.reference : null;
     const last = readLocal('qw.lastVerse', null);
     let initialReference = requested || last?.reference || '1:1';
     try {initialReference = parseReference(initialReference, manifest.surahs);} catch {initialReference = '1:1';}
@@ -418,10 +495,16 @@ document.addEventListener('click', async event => {
     $('#verse-form').scrollIntoView({behavior:'smooth', block:'start'});
     return;
   }
-  const button = event.target.closest('button');
-  if (!button) return;
   const rootLink = event.target.closest('a.root-link[data-entry]');
   if (rootLink) { event.preventDefault(); openEntry(rootLink.dataset.entry, readLocation().page === 'dictionary'); return; }
+  const routeLink = event.target.closest('a[data-page], a.brand, footer a[href="/privacy"]');
+  if (routeLink) {
+    event.preventDefault();
+    const target = routeLink.dataset.page === 'dictionary' ? '/dictionary' : routeLink.dataset.page === 'study' ? '/study' : routeLink.dataset.page === 'read' || routeLink.classList.contains('brand') ? `/q/${currentRef.replace(':','/')}` : '/privacy';
+    writeLocation(target); route(); return;
+  }
+  const button = event.target.closest('button');
+  if (!button) return;
   if (button.id === 'toc-info') {
     const dialog = $('#keyboard-layout-dialog');
     if (!dialog.open) dialog.showModal();
@@ -460,13 +543,30 @@ document.addEventListener('click', async event => {
       notice('Urdu Markdown copied.');
     }
     else if (button.dataset.entry) openEntry(button.dataset.entry);
-    else if (button.dataset.study) {studyId = button.dataset.study; studyCardId = null; revealed = false; renderStudy();}
+    else if (button.dataset.study || button.dataset.browseStudy) {
+      studyId = button.dataset.study || button.dataset.browseStudy;
+      const selected=cloud.studies[studyId], cards=selected ? await recoverStudyCards(studyId, selected) : [];
+      const validCards=cards.filter(id=>entries.has(id));
+      studyCardId = button.dataset.browseStudy ? validCards[0] || null : validCards.find(id=>(selected.progress?.[id]?.due || 0)<=Date.now()) || validCards[0] || null;
+      browseMode = !!button.dataset.browseStudy; revealed = browseMode;
+      writeLocation(`/study/${encodeURIComponent(studyId)}`); renderStudy();
+    }
+    else if (button.dataset.openStudyCard) {studyCardId = button.dataset.openStudyCard; revealed = true; browseMode = true; renderStudy();}
     else if (button.dataset.deleteStudy) {
       const id = button.dataset.deleteStudy, old = cloud.studies[id];
       if (old) cloud.mutateStudy(id, {...old, deleted:true, updatedAt:Math.max(Date.now(), old.updatedAt + 1)});
       if (studyId === id) {studyId = null; studyCardId = null;}
     }
-    else if (button.hasAttribute('data-studies')) {studyId = null; studyCardId = null; revealed = false; renderStudy();}
+    else if (button.hasAttribute('data-studies')) {studyId = null; studyCardId = null; revealed = false; browseMode=false; $('#study-dialog').close(); writeLocation('/study'); renderStudy();}
+    else if (button.dataset.entryNav) {
+      const target = button.dataset.entryNav;
+      if (target && entryContext) {
+        if (entryContext.type === 'study') {studyCardId=target; revealed=true; renderStudy();}
+        else {openEntry(target, entryContext.type === 'dictionary');}
+      }
+    }
+    else if (button.hasAttribute('data-study-browse-close')) {studyId=null; studyCardId=null; revealed=false; browseMode=false; $('#study-dialog').close(); writeLocation('/study'); renderStudy();}
+    else if (button.dataset.cardNav) {studyCardId = button.dataset.cardNav; revealed = true; renderStudy();}
     else if (button.hasAttribute('data-next-study')) {
       const study = cloud.studies[studyId], ids = study?.cards || [];
       const index = ids.indexOf(studyCardId); studyCardId = ids[(index + 1) % ids.length] || null; revealed = false; renderStudy();
@@ -474,8 +574,8 @@ document.addEventListener('click', async event => {
     else if (button.dataset.heart) toggleCard(button.dataset.heart);
     else if (button.dataset.word !== undefined) {
       const index = Number(button.dataset.word); readerId = currentWords[index]?.entryId;
-      $('#reader-card').innerHTML = entryCard(readerId);
       for (const word of document.querySelectorAll('[data-word]')) word.classList.toggle('selected', word === button);
+      if (readerId && entries.has(readerId)) openEntry(readerId, false);
     }
     else if (button.hasAttribute('data-signin')) await cloud.signIn();
     else if (button.id === 'account') {
@@ -488,13 +588,12 @@ document.addEventListener('click', async event => {
         await loadVerse(reference);
       }
     }
-    else if (button.id === 'sync') await cloud.sync();
     else if (button.dataset.ref) void loadVerse(button.dataset.ref);
     else if (button.id === 'prev-verse') adjacentVerse(-1);
     else if (button.id === 'next-verse') adjacentVerse(1);
     else if (button.dataset.letter !== undefined) {
       selectedLetter = button.dataset.letter; renderToc();
-      writeDictionaryLocation({letter:alphabet.find(([id]) => id === selectedLetter)?.[1] || selectedLetter});
+      writeLocation('/dictionary', {letter:alphabet.find(([id]) => id === selectedLetter)?.[1] || selectedLetter});
     }
     else if (button.id === 'reveal') {revealed = true; renderStudy();}
     else if (button.dataset.studyGrade && studyId && studyCardId && revealed) {
@@ -503,8 +602,9 @@ document.addEventListener('click', async event => {
       const nextCard = schedule(oldCard, button.dataset.studyGrade, Math.max(Date.now(), oldCard.updatedAt + 1));
       progress[studyCardId] = nextCard;
       const nextStudy = {...current, progress, updatedAt:Math.max(Date.now(), current.updatedAt + 1)};
-      const nextDue = (current.cards || []).filter(entryId => entries.has(entryId) && (progress[entryId]?.due || 0) <= Date.now());
-      studyCardId = nextDue[0] || null; revealed = false;
+      const cards = (current.cards || []).filter(entryId => entries.has(entryId));
+      const index = cards.indexOf(studyCardId), nextDue = cards.filter(entryId => (progress[entryId]?.due || 0) <= Date.now());
+      studyCardId = nextDue[0] || cards[(index + 1) % cards.length] || null; revealed = false;
       cloud.mutateStudy(studyId, nextStudy);
     }
     else if (button.dataset.grade && studyId && revealed && !cloud.studies?.[studyId]) {
@@ -530,16 +630,23 @@ $('#verse-form').addEventListener('submit', event => {event.preventDefault(); if
 $('#toc-search').addEventListener('input', event => {tocQuery = event.target.value; tocMatchIndex = 0; renderToc();});
 $('#toc-search').addEventListener('keydown', handleTocKeyDown);
 $('#toc-search').addEventListener('beforeinput', handleTocBeforeInput);
-$('#cards-search').addEventListener('input', () => {if (cloud) renderCards();});
 $('#detail-dialog').addEventListener('click', event => {if (event.target === $('#detail-dialog')) {const r = event.target.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) closeEntryDialog();}});
 $('#detail-dialog').addEventListener('close', () => {
   const state = readLocation();
   if (state.page === 'dictionary' && state.params.has('card')) writeDictionaryLocation({letter:alphabet.find(([id]) => id === selectedLetter)?.[1] || ''});
   dialogId = null;
 });
+$('#study-dialog').addEventListener('click', event => {
+  if (event.target.closest('.study-click-to-reveal') && !revealed && !browseMode) {revealed=true; renderStudy(); return;}
+  if (event.target === $('#study-dialog')) $('#study-dialog').close();
+});
+$('#study-dialog').addEventListener('keydown', event => {
+  if ((event.key === 'Enter' || event.key === ' ') && event.target.matches('.study-click-to-reveal') && !revealed && !browseMode) {event.preventDefault(); revealed=true; renderStudy();}
+});
+$('#study-dialog').addEventListener('close', () => {studyCardId = null; revealed = false; browseMode=false; renderStudy();});
 $('#keyboard-layout-dialog').addEventListener('click', event => {if (event.target === $('#keyboard-layout-dialog')) {$('#keyboard-layout-dialog').close(); $('#toc-info').setAttribute('aria-expanded', 'false');}});
 $('#keyboard-layout-dialog').addEventListener('close', () => $('#toc-info').setAttribute('aria-expanded', 'false'));
-window.addEventListener('hashchange', () => {if (manifest) route();});
+window.addEventListener('popstate', () => {if (manifest) route();});
 window.addEventListener('online', () => {if (cloud?.authorized) void cloud.sync();});
 window.addEventListener('focus', () => {if (cloud) renderAuth();});
 setInterval(() => {if (cloud) renderAuth();}, 60000);
