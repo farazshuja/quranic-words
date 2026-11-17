@@ -63,7 +63,9 @@ Use manual sync when switching devices. Writes use per-record timestamps, assume
 
 ## PWA and offline use
 
-`public/manifest.webmanifest` plus PNG/SVG icons make the app installable from the browser address bar on desktop and Android; the `apple-touch-icon` covers iOS home-screen installs. `src/sw.js` (copied to `dist/sw.js` by the build) caches the app shell, fonts and dictionary data, serves cached data with stale-while-revalidate, keeps the last verses from Al Quran Cloud for offline reading, and falls back to the cached app for navigations when offline. Install and offline behavior need HTTPS or localhost, which GitHub Pages and `npm run dev` provide. Bump the `VERSION` constant in `src/sw.js` when a deploy changes what the shell should cache.
+`public/manifest.webmanifest` plus PNG/SVG icons make the app installable from the browser address bar on desktop and Android; the `apple-touch-icon` covers iOS home-screen installs. `src/sw.js` (copied to `dist/sw.js` by the build) caches the app shell, fonts and dictionary data. App shell assets are served network-first with server revalidation, so a refresh always shows the latest deploy (the cache is only the offline fallback); the large dictionary data files use stale-while-revalidate; verses from Al Quran Cloud are network-first with a cache fallback; fonts are cache-first. Install and offline behavior need HTTPS or localhost, which GitHub Pages and `npm run dev` provide.
+
+The build stamps the site version into `dist/config.json` (shown in the footer) and into the service worker cache name, so every content change swaps the whole cache on the next visit. `version.json` tracks `major.minor.patch` plus a content hash: the **patch auto-increments whenever the built content changes**; edit `major` or `minor` yourself only when a bigger release is intended.
 
 ## Verse lookup
 

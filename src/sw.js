@@ -58,11 +58,17 @@ const staleWhileRevalidate = async (request, cacheName = VERSION) => {
 };
 
 const networkFirst = async (request, fallback) => {
+  const cache = await caches.open(VERSION);
   try {
-    return await fetch(request);
+    // no-cache revalidates with the server, so a refresh always shows the
+    // latest deploy instead of a stale HTTP-cached copy.
+    const response = await fetch(request, {cache: 'no-cache'});
+    if (response.ok) cache.put(request, response.clone());
+    return response;
   } catch {
-    const cache = await caches.open(VERSION);
-    return (await cache.match(request, {ignoreVary: true})) || (fallback ? await cache.match(fallback, {ignoreVary: true}) : undefined);
+    return (await cache.match(request, {ignoreVary: true}))
+      || (fallback ? await cache.match(fallback, {ignoreVary: true}) : undefined)
+      || Response.error();
   }
 };
 
@@ -77,7 +83,9 @@ self.addEventListener('fetch', event => {
     return;
   }
   if (url.origin === self.location.origin) {
-    event.respondWith(staleWhileRevalidate(request));
+    // The app shell must show the latest deploy on the first refresh; only the
+    // large dictionary data files use stale-while-revalidate.
+    event.respondWith(url.pathname.includes('/data/') ? staleWhileRevalidate(request) : networkFirst(request));
     return;
   }
   if (url.hostname.endsWith('alquran.cloud')) {

@@ -521,6 +521,7 @@ async function start() {
       if (firebase.authorized) {cloud = firebase; renderAuth();}
     });
     $('#dictionary-count').textContent = `${entries.size.toLocaleString()} entries, grouped by Arabic letter and root. Select any word to explore.`;
+    $('#app-version').textContent = config.version ? `v${config.version}` : '';
     $('#startup').hidden = true; renderAuth(); route({skipVerseLoad:true});
     const state = readLocation();
     const requested = state.page === 'read' ? state.reference : null;

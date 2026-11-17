@@ -1,4 +1,5 @@
 import {readFile, writeFile, mkdir, cp} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import {alphabet} from '../src/core.js';
@@ -11,6 +12,24 @@ const master = path.resolve(app, 'data');
 const out = path.join(app, 'dist');
 const read = async name => JSON.parse(await readFile(path.join(master, `${name}.json`), 'utf8'));
 const [entries, qwords] = await Promise.all([read('entries'), read('qwords')]);
+
+// The site version is major.minor.patch; major/minor change only when asked
+// for, while the patch auto-increments whenever the built site content changes.
+const VERSION_FILE = path.join(app, 'version.json');
+const VERSION_INPUTS = ['index.html', 'config.json', 'src/app.js', 'src/core.js', 'src/markup.js',
+  'src/firebase-cards.js', 'src/local-cards.js', 'src/sw.js', 'src/style.css',
+  'data/entries.json', 'data/qwords.json', 'public/manifest.webmanifest', 'public/quranic-words-logo.svg'];
+const siteVersion = async () => {
+  let version = {major:1, minor:0, patch:0, hash:null};
+  try { version = JSON.parse(await readFile(VERSION_FILE, 'utf8')); } catch { /* first build */ }
+  const contents = await Promise.all(VERSION_INPUTS.map(name => readFile(path.join(app, name), 'utf8').catch(() => '')));
+  const hash = createHash('sha256').update(contents.join('\u0000')).digest('hex');
+  if (version.hash && version.hash !== hash) version.patch += 1;
+  version.hash = hash;
+  await writeFile(VERSION_FILE, `${JSON.stringify(version, null, 2)}\n`);
+  return `${version.major}.${version.minor}.${version.patch}`;
+};
+const appVersion = await siteVersion();
 const allowedEntryFields = new Set(['id','word','markdown_ur','nouns','verbs','root']);
 for (const entry of entries) {
   if (Object.keys(entry).some(key => !allowedEntryFields.has(key)))
@@ -66,8 +85,12 @@ await cp(path.join(app, 'public/icons'), path.join(out, 'icons'), {recursive: tr
 // Resolve from this package; existing root dependency also supports local builds.
 const marked = fileURLToPath(import.meta.resolve('marked'));
 await cp(marked, path.join(out, 'vendor/marked.js'));
+// Bump the service worker cache version with the site version so a deploy
+// swaps every cached asset instead of waiting for revalidation.
+const sw = (await readFile(path.join(out, 'sw.js'), 'utf8')).replace("'qw-v1'", `'qw-v${appVersion}'`);
+await writeFile(path.join(out, 'sw.js'), sw);
 const config = JSON.parse(await readFile(path.join(app, 'config.json'), 'utf8'));
-await writeFile(path.join(out, 'config.json'), JSON.stringify(config));
+await writeFile(path.join(out, 'config.json'), JSON.stringify({...config, version: appVersion}));
 await writeFile(path.join(out, '.nojekyll'), '');
 await writeFile(path.join(out, 'data/entries.json'), JSON.stringify(publicEntries));
 await writeFile(path.join(out, 'data/toc.json'), JSON.stringify(toc));
@@ -76,4 +99,4 @@ await writeFile(path.join(out, 'data/manifest.json'), JSON.stringify({entryCount
 await writeFile(path.join(out, 'data/study-index.json'), JSON.stringify(qwords.map(s => ({surah_no:s.surah_no,
   ayahs:s.ayahs.map(a => ({no:a.no, entries:[...new Set((a.words || []).map(w => w.entryId).filter(id => explainedIds.has(id)))]}))}))));
 for (const surah of qwords) await writeFile(path.join(out, `data/verses/${surah.surah_no}.json`), JSON.stringify(surah.ayahs));
-console.log(`Built ${publicEntries.length} explained Urdu entries and ${qwords.length} Surahs in dist from sanitized public data.`);
+console.log(`Built ${publicEntries.length} explained Urdu entries and ${qwords.length} Surahs in dist from sanitized public data (v${appVersion}).`);
