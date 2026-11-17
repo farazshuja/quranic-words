@@ -25,6 +25,18 @@ function notice(message) {
   clearTimeout(noticeTimer); noticeTimer = setTimeout(() => { $('#notification').hidden = true; }, 7000);
 }
 function readLocal(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch {return fallback;} }
+// Inline SVG icons: identical rendering on every platform, unlike font glyphs
+// (arrows/hearts differ per fallback font, which made header buttons uneven).
+function svgIcon(name, filled = false) {
+  const paths = {
+    heart: '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
+    close: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+    prev: '<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>',
+    next: '<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>',
+    copy: '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>'
+  };
+  return `<svg viewBox="0 0 24 24" fill="${filled ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="${filled ? 1 : 2}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths[name]}</svg>`;
+}
 function storeLocal(key, value) {try { localStorage.setItem(key, JSON.stringify(value)); } catch {notice('Browser storage is unavailable. Your reading position cannot be remembered.');} }
 function readLocation() {
   const pathname = APP_ROOT === '/' ? location.pathname : location.pathname.slice(APP_ROOT.length - 1);
@@ -102,7 +114,7 @@ function markdown(text) {
 }
 function heart(id) {
   const saved = cloud?.authorized && cloud.deck[id] && !cloud.deck[id].deleted;
-  return `<button class="heart ${saved ? 'saved' : ''}" data-heart="${esc(id)}" aria-pressed="${!!saved}" aria-label="${saved ? 'Remove from' : 'Add to'} flashcards" title="${saved ? 'Remove from flashcards' : 'Save to flashcards'}">${saved ? '♥' : '♡'}</button>`;
+  return `<button class="heart ${saved ? 'saved' : ''}" data-heart="${esc(id)}" aria-pressed="${!!saved}" aria-label="${saved ? 'Remove from' : 'Add to'} flashcards" title="${saved ? 'Remove from flashcards' : 'Save to flashcards'}">${svgIcon('heart', saved)}</button>`;
 }
 function entryCard(id, inDialog = false) {
   const entry = entries.get(id);
@@ -114,10 +126,10 @@ function entryCard(id, inDialog = false) {
   const previous = position > 0 ? sequence[position - 1] : '';
   const next = position >= 0 && position < sequence.length - 1 ? sequence[position + 1] : '';
   const showSequenceNav = entryContext && (entryContext.type !== 'study' || browseMode);
-  const nav = showSequenceNav ? `<button class="icon-button" data-entry-nav="${esc(next)}" aria-label="Next word" title="Next word" ${next ? '' : 'disabled'}>→</button><button class="icon-button" data-entry-nav="${esc(previous)}" aria-label="Previous word" title="Previous word" ${previous ? '' : 'disabled'}>←</button>` : '';
+  const nav = showSequenceNav ? `<button class="icon-button" data-entry-nav="${esc(next)}" aria-label="Next word" title="Next word" ${next ? '' : 'disabled'}>${svgIcon('next')}</button><button class="icon-button" data-entry-nav="${esc(previous)}" aria-label="Previous word" title="Previous word" ${previous ? '' : 'disabled'}>${svgIcon('prev')}</button>` : '';
   const askedAgo = entryContext?.type === 'study' && browseMode && entryContext.askedAt ? `<span class="study-asked-ago">${esc(timeAgo(entryContext.askedAt))}</span>` : '';
-  const close = inDialog ? entryContext?.type === 'study' ? '<button class="icon-button card-close" data-study-browse-close aria-label="Close card" title="Close card">×</button>' : '<button id="close-dialog" class="icon-button card-close" aria-label="Close dictionary card" title="Close">×</button>' : '';
-  const controls = `<div class="card-actions" dir="rtl">${close}${heart(id)}${askedAgo}${nav}<button class="copy-card icon-button" data-copy-card="${esc(id)}" aria-label="Copy Urdu markdown" title="Copy Urdu markdown">⧉</button></div>`;
+  const close = inDialog ? entryContext?.type === 'study' ? '<button class="icon-button card-close" data-study-browse-close aria-label="Close card" title="Close card">' + svgIcon('close') + '</button>' : '<button id="close-dialog" class="icon-button card-close" aria-label="Close dictionary card" title="Close">' + svgIcon('close') + '</button>' : '';
+  const controls = `<div class="card-actions" dir="rtl">${close}${heart(id)}${askedAgo}${nav}<button class="copy-card icon-button" data-copy-card="${esc(id)}" aria-label="Copy Urdu markdown" title="Copy Urdu markdown">${svgIcon('copy')}</button></div>`;
   return `<article class="entry-card"><header class="entry-header"><div class="entry-heading"><h2 dir="rtl" lang="ar">${esc(entry.word)}</h2><small>${esc(entry.id)}</small></div>${children.length ? '<span class="badge">ROOT</span>' : ''}${controls}</header><div class="entry-body"><div class="forms" dir="rtl">${root}${entry.nouns ? `<div class="form-item"><span>Nouns</span>${esc(entry.nouns)}</div>` : ''}${entry.verbs ? `<div class="form-item"><span>Verbs</span>${esc(entry.verbs.split('|')[0].trim())}</div>` : ''}</div>${entry.markdown_ur ? `<div class="urdu" lang="ur" dir="rtl">${markdown(entry.markdown_ur)}</div>` : '<p class="muted">An Urdu explanation is not available for this entry yet.</p>'}${children.length ? `<p class="muted">Words from this root</p><div class="related">${children.map(e => `<button class="word-chip" data-entry="${esc(e.id)}">${esc(e.word)}</button>`).join('')}</div>` : ''}</div></article>`;
 }
 function openEntry(id, updateLocation = readLocation().page === 'dictionary') {
@@ -144,7 +156,7 @@ function closeEntryDialog() {
 function refreshHearts() {
   for (const button of document.querySelectorAll('[data-heart]')) {
     const saved = cloud.authorized && cloud.deck[button.dataset.heart] && !cloud.deck[button.dataset.heart].deleted;
-    button.classList.toggle('saved', !!saved); button.textContent = saved ? '♥' : '♡';
+    button.classList.toggle('saved', !!saved); button.innerHTML = svgIcon('heart', saved);
     button.setAttribute('aria-pressed', !!saved); button.setAttribute('aria-label', `${saved ? 'Remove from' : 'Add to'} flashcards`);
   }
 }
