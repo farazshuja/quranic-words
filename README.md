@@ -1,6 +1,6 @@
 # Quranic Words web app
 
-A static, responsive Quran reader and Urdu dictionary with Firebase-backed flashcards and studies. It uses Amiri and Scheherazade New, inspired by `gui-app`.
+A static, responsive Quran reader and Urdu dictionary with flashcards and studies. It works without an account — cards and studies are then kept in the browser — and signed-in users sync them through Firebase. It is a PWA: installable on desktop and mobile, with an offline app shell, cached dictionary data and the last verse.
 
 ## Run locally
 
@@ -20,7 +20,7 @@ npm ci
 npm run dev
 ```
 
-Open http://localhost:4173. `npm run build` generates `dist`; `npm run preview` serves an existing build. `npm test` runs data, verse alignment, review scheduling and mocked Drive integration checks.
+Open http://localhost:4173. `npm run build` generates `dist`; `npm run preview` serves an existing build. `npm test` runs data, verse alignment, review scheduling, local card storage and mocked Drive integration checks. `npm run icons` regenerates the PWA PNG icons in `public/icons` after the logo changes.
 
 Local builds automatically refresh `data/entries.json` and `data/qwords.json` from the sibling `../quranic-usage-text` repository using its existing `scripts/export-web-data.mjs` exporter. You can also run `npm run sync-data` explicitly. The exporter only reads the source repository and writes sanitized snapshots into this repository; source files remain unchanged. If the sibling repository is absent (as on GitHub Actions), builds use the committed snapshots. If it is present but its export fails, the build fails so stale data is not silently published.
 
@@ -53,11 +53,17 @@ Only verified `farazshuja@gmail.com` is allowed by both the app and Firestore ru
 
 ## Flashcards and synchronization
 
+Study and saved words are available without signing in. Anonymous visitors get the same UI; their cards, studies and review progress are saved only in that browser (`qw.local` in localStorage) and never sent anywhere. A note on the Study page says cards are kept on the device and offers **Sign in to sync**.
+
+Signing in adopts that local data: the browser copy is merged into the first Firebase sync, so nothing saved anonymously is lost. Signing out returns to the local view; the cloud copy stays in Firestore and in the per-account browser backup.
+
 Hearts toggle saved words and root entries. Cards shows all saved entries with their due dates and last rating; clicking an entry opens the same dictionary card. Study shows due cards, initially hides the answer, then offers **Easy / Medium / Difficult / Failed**. Failed returns in 10 minutes; other choices increase intervals with an ease factor. This is an Anki-style scheduler, not Anki's exact SM-2 or FSRS implementation. Every rating persists grade, interval, due timestamp, ease, review count and lapse count.
 
-Cards and studies are stored as per-user Firestore documents. Card removals remain as tombstones to avoid resurrection from stale caches. An account-specific browser backup is retained for recovery. Dictionary content is never stored in Firestore.
-
 Use manual sync when switching devices. Writes use per-record timestamps, assume reasonably accurate device clocks, and cannot guarantee transactional writes for simultaneous offline edits on multiple devices or tabs. Browse the local privacy page for clearing local caches and deleting cloud data. Keep the page open until a failed save is retried if browser storage is unavailable.
+
+## PWA and offline use
+
+`public/manifest.webmanifest` plus PNG/SVG icons make the app installable from the browser address bar on desktop and Android; the `apple-touch-icon` covers iOS home-screen installs. `src/sw.js` (copied to `dist/sw.js` by the build) caches the app shell, fonts and dictionary data, serves cached data with stale-while-revalidate, keeps the last verses from Al Quran Cloud for offline reading, and falls back to the cached app for navigations when offline. Install and offline behavior need HTTPS or localhost, which GitHub Pages and `npm run dev` provide. Bump the `VERSION` constant in `src/sw.js` when a deploy changes what the shell should cache.
 
 ## Verse lookup
 

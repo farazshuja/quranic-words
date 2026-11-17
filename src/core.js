@@ -112,3 +112,12 @@ export function mergeDecks(...decks) {
   }
   return result;
 }
+
+// Merge cards/studies saved anonymously in this browser into a signed-in
+// account so the first sync uploads them instead of the local work being lost.
+export function adoptSeed(deck, studies, seed) {
+  const mergedStudies = {...(studies || {})};
+  for (const [id, study] of Object.entries(seed?.studies || {}))
+    if (!mergedStudies[id] || (study.updatedAt || 0) > (mergedStudies[id].updatedAt || 0)) mergedStudies[id] = study;
+  return {deck: mergeDecks(seed?.deck || {}, deck), studies: mergedStudies};
+}

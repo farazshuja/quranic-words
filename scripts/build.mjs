@@ -57,9 +57,12 @@ for (const section of Object.keys(toc)) toc[section] = toc[section].filter(node 
 await mkdir(path.join(out, 'data/verses'), {recursive: true});
 await mkdir(path.join(out, 'vendor'), {recursive: true});
 await cp(path.join(app, 'src'), path.join(out, 'src'), {recursive: true});
+await cp(path.join(app, 'src/sw.js'), path.join(out, 'sw.js'));
 await cp(path.join(app, 'index.html'), path.join(out, 'index.html'));
 await cp(path.join(app, 'index.html'), path.join(out, '404.html'));
 await cp(path.join(app, 'public/quranic-words-logo.svg'), path.join(out, 'quranic-words-logo.svg'));
+await cp(path.join(app, 'public/manifest.webmanifest'), path.join(out, 'manifest.webmanifest'));
+await cp(path.join(app, 'public/icons'), path.join(out, 'icons'), {recursive: true});
 // Resolve from this package; existing root dependency also supports local builds.
 const marked = fileURLToPath(import.meta.resolve('marked'));
 await cp(marked, path.join(out, 'vendor/marked.js'));

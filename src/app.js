@@ -1,6 +1,7 @@
 import {escapeHtml as esc, parseUrdu} from './markup.js';
 import {alphabet, normalize, searchToc, keyboardMap, altGrMap, parseReference, verseReferences, alignWords, schedule} from './core.js';
 import {FirebaseCards} from './firebase-cards.js';
+import {LocalCards} from './local-cards.js';
 
 const $ = selector => document.querySelector(selector);
 // Deployments may live in a subdirectory (e.g. GitHub Pages project sites); routes are appended to this root.
@@ -11,7 +12,7 @@ const APP_ROOT = (() => {
   while (depth < parts.length && !routes.includes(parts[depth])) depth++;
   return depth ? `/${parts.slice(0, depth).join('/')}/` : '/';
 })();
-let entries = new Map(), toc = {}, manifest, config, cloud;
+let entries = new Map(), toc = {}, manifest, config, cloud, firebase;
 let currentRef = '1:1', currentWords = [], readerId = null, dialogId = null, requestId = 0;
 let entryContext = null;
 let selectedLetter = 'alif', studyId = null, studyCardId = null, revealed = false, browseMode = false, studied = 0;
@@ -406,7 +407,8 @@ function renderStudy() {
   const active = studyId ? studies.find(([id]) => id === studyId || id === (studies.find(([,item]) => item.name === studyId)?.[0])) : null;
   if (!active) {
     const list = studies.length ? `<div class="study-list">${studies.map(([id, study]) => {const stats=studyStats(study);return `<article class="study-item"><button class="study-open" data-study="${esc(id)}"><strong>${esc(study.name)}</strong><small>${stats.studiedCount} / ${stats.cards.length} studied · ${stats.due.length} due${stats.upcoming.length ? ` · ${esc(dueSummary(stats.upcoming))}` : ''}</small></button><button class="icon-button book-icon" data-browse-study="${esc(id)}" aria-label="Browse ${esc(study.name)} cards" title="Browse cards">▤</button>${id !== 'General' ? `<button class="icon-button" data-delete-study="${esc(id)}" aria-label="Delete ${esc(study.name)}" title="Delete study">×</button>` : ''}</article>`;}).join('')}</div>` : '';
-    $('#study-area').innerHTML = `<form id="create-study" class="study-create"><label for="study-range">Create a study</label><div><input id="study-range" placeholder="1:1-3:73, 23 or 23-25" required autocomplete="off"><button class="button" type="submit">Create study</button></div><label class="study-checkbox"><input id="only-new-words" type="checkbox"> Only new words</label><p class="muted">Use a verse range such as 1:1-3:73, a Surah number such as 23 for the whole Surah, or a Surah range such as 23-25.</p></form>${list}`;
+    const localNote = cloud.mode === 'local' ? `<p class="local-note">Cards and studies are saved on this device only. <button type="button" class="text-button" data-signin>Sign in to sync</button></p>` : '';
+    $('#study-area').innerHTML = `${localNote}<form id="create-study" class="study-create"><label for="study-range">Create a study</label><div><input id="study-range" placeholder="1:1-3:73, 23 or 23-25" required autocomplete="off"><button class="button" type="submit">Create study</button></div><label class="study-checkbox"><input id="only-new-words" type="checkbox"> Only new words</label><p class="muted">Use a verse range such as 1:1-3:73, a Surah number such as 23 for the whole Surah, or a Surah range such as 23-25.</p></form>${list}`;
     return;
   }
   const [id, selected] = active;
@@ -423,14 +425,24 @@ function renderStudy() {
 }
 function renderAuth() {
   if (!cloud) return;
-  $('#account').textContent = cloud.authorized ? `${cloud.user.name} · Sign out` : cloud.busy ? 'Connecting…' : 'Sign in with Gmail';
-  $('#account').disabled = cloud.busy;
-  for (const gate of document.querySelectorAll('.auth-gate')) {
-    gate.hidden = cloud.authorized;
-    gate.innerHTML = `<div class="empty"><span class="empty-symbol" aria-hidden="true">♡</span><h2>A place for your own words.</h2><p>Sign in with ${esc(config.allowedEmail)} to save cards and studies.</p><p>Stored privately in Firebase.</p><button class="button" data-signin ${cloud.busy ? 'disabled' : ''}>${cloud.busy ? 'Connecting…' : 'Continue with Gmail'}</button>${!config.firebase?.apiKey ? '<p>Firebase is not configured yet.</p>' : ''}</div>`;
-  }
-  for (const panel of document.querySelectorAll('.private-content')) panel.hidden = !cloud.authorized;
+  const connecting = !!firebase?.busy;
+  $('#account').textContent = cloud.mode === 'firebase' && cloud.authorized ? `${cloud.user.name} · Sign out` : connecting ? 'Connecting…' : 'Sign in with Gmail';
+  $('#account').disabled = connecting;
   renderStudy(); refreshHearts();
+}
+// Sign in from either the account button or the local-mode banner; anonymous
+// cards/studies travel along as the seed for the first Firebase sync.
+async function beginSignIn() {
+  if (!firebase || firebase.busy) return;
+  await firebase.signIn({deck:{...cloud.deck}, studies:{...cloud.studies}});
+  if (firebase.authorized) {
+    cloud = firebase;
+    renderAuth();
+    const localReference = readLocal('qw.lastVerse', null)?.reference;
+    let reference = firebase.lastVerse || localReference || '1:1';
+    try {reference = parseReference(reference, manifest.surahs);} catch {reference = '1:1';}
+    await loadVerse(reference);
+  }
 }
 function route({skipVerseLoad = false} = {}) {
   const state = readLocation();
@@ -487,7 +499,13 @@ async function start() {
   try {
     const [data, index, meta, settings] = await Promise.all([json('./data/entries.json'), json('./data/toc.json'), json('./data/manifest.json'), json('./config.json')]);
     entries = new Map(data.map(e => [e.id, e])); toc = index; manifest = meta; config = settings;
-    cloud = new FirebaseCards({config:config.firebase, onChange:renderAuth});
+    // Study and cards work without an account; Firebase is adopted only when a
+    // session already exists or after the user signs in.
+    cloud = new LocalCards({onChange:renderAuth});
+    firebase ??= new FirebaseCards({config:config.firebase, onChange:renderAuth});
+    void firebase.authReady.then(() => {
+      if (firebase.authorized) {cloud = firebase; renderAuth();}
+    });
     $('#dictionary-count').textContent = `${entries.size.toLocaleString()} entries, grouped by Arabic letter and root. Select any word to explore.`;
     $('#startup').hidden = true; renderAuth(); route({skipVerseLoad:true});
     const state = readLocation();
@@ -496,6 +514,7 @@ async function start() {
     let initialReference = requested || last?.reference || '1:1';
     try {initialReference = parseReference(initialReference, manifest.surahs);} catch {initialReference = '1:1';}
     await loadVerse(initialReference);
+    if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('./sw.js').catch(() => {});
   } catch (error) {
     $('#startup').innerHTML = `<h2>The dictionary could not load.</h2><p>${esc(error.message)}</p><button class="button" id="retry-start">Try again</button>`;
   }
@@ -595,16 +614,13 @@ document.addEventListener('click', async event => {
       for (const word of document.querySelectorAll('[data-word]')) word.classList.toggle('selected', word === button);
       if (readerId && entries.has(readerId)) openEntry(readerId, false);
     }
-    else if (button.hasAttribute('data-signin')) await cloud.signIn();
+    else if (button.hasAttribute('data-signin')) await beginSignIn();
     else if (button.id === 'account') {
-      if (cloud.authorized) cloud.signOut();
-      else {
-        await cloud.signIn();
-        const localReference = readLocal('qw.lastVerse', null)?.reference;
-        let reference = cloud.lastVerse || localReference || '1:1';
-        try {reference = parseReference(reference, manifest.surahs);} catch {reference = '1:1';}
-        await loadVerse(reference);
-      }
+      if (cloud.mode === 'firebase' && cloud.authorized) {
+        await cloud.signOut();
+        cloud = new LocalCards({onChange:renderAuth});
+        renderAuth();
+      } else await beginSignIn();
     }
     else if (button.dataset.ref) void loadVerse(button.dataset.ref);
     else if (button.id === 'prev-verse') adjacentVerse(-1);
@@ -631,11 +647,12 @@ document.addEventListener('click', async event => {
     }
     else if (button.id === 'close-dialog') closeEntryDialog();
     else if (button.id === 'clear-local') {
-      if (cloud.busy) {notice('Wait for the current sync to finish before clearing local data.'); return;}
-      cloud.signOut();
-      for (const key of Object.keys(localStorage)) if (key.startsWith('qw.deck.')) localStorage.removeItem(key);
-      for (const key of Object.keys(localStorage)) if (key.startsWith('qw.firebase.')) localStorage.removeItem(key);
+      if (firebase?.busy) {notice('Wait for the current sync to finish before clearing local data.'); return;}
+      if (cloud.mode === 'firebase') {await cloud.signOut(); cloud = new LocalCards({onChange:renderAuth});}
+      else await cloud.signOut();
+      for (const key of Object.keys(localStorage)) if (/^qw\.(deck|firebase)\./.test(key) || key === 'qw.local') localStorage.removeItem(key);
       notice('Local card data cleared. Firebase data is unchanged.');
+      renderAuth();
     }
   } catch (error) {notice(error.message);}
 });

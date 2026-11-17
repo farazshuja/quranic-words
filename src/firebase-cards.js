@@ -1,13 +1,13 @@
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
-import {getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut as firebaseSignOut} from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
+import {getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut as firebaseSignOut} from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
 import {getFirestore, collection, doc, getDocs, setDoc} from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
-import {mergeDecks} from './core.js';
+import {mergeDecks, adoptSeed} from './core.js';
 
 const ALLOWED_EMAIL = 'farazshuja@gmail.com';
 
 export class FirebaseCards {
-  constructor({config, storage = localStorage, onChange = () => {}}) {
-    Object.assign(this, {storage, onChange});
+  constructor({config, storage = localStorage, onChange = () => {}, seed = null}) {
+    Object.assign(this, {storage, onChange, seed});
     const app = initializeApp(config);
     this.auth = getAuth(app); this.db = getFirestore(app);
     this.deck = {}; this.studies = {}; this.lastVerse = null; this.lastVerseUpdatedAt = 0; this.synced = false;
@@ -18,6 +18,7 @@ export class FirebaseCards {
           this.user = {sub:user.uid, name:user.displayName || user.email, email:user.email};
           this.ready = true;
           this.loadBackup();
+          this.adopt(this.seed);
           try { await this.sync(); }
           catch (error) { this.status = `${error.message} Your local copy is still available.`; }
         } else {
@@ -30,6 +31,7 @@ export class FirebaseCards {
     });
   }
   get authorized() { return this.ready && !!this.user; }
+  get mode() { return 'firebase'; }
   get busy() { return this._busy || false; }
   set busy(value) { this._busy = value; }
   get cacheKey() { return this.user ? `qw.firebase.${this.user.sub}` : null; }
@@ -45,14 +47,31 @@ export class FirebaseCards {
       this.studies = cached.studies && typeof cached.studies === 'object' ? cached.studies : {};
     } catch { this.deck = {}; this.studies = {}; }
   }
-  async signIn() {
+  // Merge cards/studies saved anonymously in this browser so the first sync
+  // uploads them instead of the local work being lost.
+  adopt(seed = null) {
+    if (!seed) return;
+    ({deck:this.deck, studies:this.studies} = adoptSeed(this.deck, this.studies, seed));
+  }
+  async signIn(seed = this.seed) {
     await this.authReady;
     if (this.busy) return;
     this.busy = true; this.emit();
     try {
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({login_hint:ALLOWED_EMAIL, prompt:'select_account'});
-      const result = await signInWithPopup(this.auth, provider);
+      let result;
+      try {
+        result = await signInWithPopup(this.auth, provider);
+      } catch (error) {
+        // Installed PWAs and some browsers block popups; a redirect still works.
+        if (['auth/popup-blocked', 'auth/popup-closed-by-user', 'auth/cancelled-popup-request', 'auth/operation-not-supported-in-this-environment'].includes(error.code)) {
+          this.seed = seed;
+          await signInWithRedirect(this.auth, provider);
+          return;
+        }
+        throw error;
+      }
       if (result.user.email?.toLowerCase() !== ALLOWED_EMAIL) {
         await firebaseSignOut(this.auth);
         throw new Error(`Only ${ALLOWED_EMAIL} can use Cards and Study right now.`);
@@ -60,6 +79,7 @@ export class FirebaseCards {
       this.user = {sub:result.user.uid, name:result.user.displayName || result.user.email, email:result.user.email};
       this.ready = true;
       this.loadBackup();
+      this.adopt(seed);
       this.busy = false;
       await this.sync();
     } finally { this.busy = false; this.emit(); }
