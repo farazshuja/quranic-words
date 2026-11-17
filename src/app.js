@@ -44,7 +44,9 @@ function writeLocation(path, values = {}, replace = false) {
 }
 function writeDictionaryLocation(values = {}) { writeLocation('/dictionary', values); }
 function writeVerseLocation(reference, values = {}, replace = false) { writeLocation(`/q/${reference.replace(':','/')}`, values, replace); }
-function cardUrlReference(entry) { return entry.word.includes('/') ? entry.word.replaceAll('/', '-') : entry.word; }
+// Card URLs use the stable entry id (e.g. dal-161) instead of the Arabic word:
+// shorter, readable links. Word-based links shared earlier still resolve.
+function cardUrlReference(entry) { return entry.id; }
 function findLetterId(value) {
   if (!value) return null;
   return alphabet.find(([id, label]) => id === value || label === value)?.[0] || null;
