@@ -283,7 +283,9 @@ function handleTocBeforeInput(event) {
 }
 function savedCards() { return Object.entries(cloud.deck).filter(([id, card]) => !card.deleted && entries.has(id)).sort((a, b) => a[1].due - b[1].due); }
 function ensureGeneralStudy() {
-  if (!cloud?.authorized) return;
+  // Wait until the first sync has loaded the remote studies, otherwise an empty
+  // local view could overwrite the cloud General study with a newer updatedAt.
+  if (!cloud?.authorized || !cloud.synced) return;
   const old = cloud.studies.General;
   const cards = savedCards().map(([id]) => id);
   if (old && !old.deleted && cards.every(id => (old.cards || []).includes(id)) && (old.cards || []).every(id => cards.includes(id))) return;

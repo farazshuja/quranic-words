@@ -57,6 +57,7 @@ test('newer tombstones survive merges with stale saved cards', () => {
   const saved = {'alif-entry-1':{due:0,updatedAt:10,deleted:false}};
   const removed = {'alif-entry-1':{due:0,updatedAt:20,deleted:true}};
   assert.equal(mergeDecks(removed,saved)['alif-entry-1'].deleted,true);
+  assert.equal(mergeDecks({'alif-1':{due:0,updatedAt:10}})['alif-1'].due,0);
   assert.deepEqual(mergeDecks({'bad':{due:0,updatedAt:1},'alif-entry-2':{due:'invalid',updatedAt:1}}),{});
 });
 test('standalone build preserves public inputs and publishes only explained entries with valid TOC roots', async () => {

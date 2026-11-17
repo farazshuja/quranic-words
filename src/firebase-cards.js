@@ -10,7 +10,7 @@ export class FirebaseCards {
     Object.assign(this, {storage, onChange});
     const app = initializeApp(config);
     this.auth = getAuth(app); this.db = getFirestore(app);
-    this.deck = {}; this.studies = {}; this.lastVerse = null; this.lastVerseUpdatedAt = 0;
+    this.deck = {}; this.studies = {}; this.lastVerse = null; this.lastVerseUpdatedAt = 0; this.synced = false;
     this.user = null; this.ready = false; this.busy = false; this.status = 'Connecting to Firebase…';
     this.authReady = new Promise(resolve => {
       onAuthStateChanged(this.auth, async user => {
@@ -66,7 +66,7 @@ export class FirebaseCards {
   }
   async signOut() {
     await firebaseSignOut(this.auth);
-    this.user = null; this.deck = {}; this.studies = {}; this.lastVerse = null; this.lastVerseUpdatedAt = 0; this.status = 'Signed out.'; this.emit();
+    this.user = null; this.deck = {}; this.studies = {}; this.lastVerse = null; this.lastVerseUpdatedAt = 0; this.synced = false; this.status = 'Signed out.'; this.emit();
   }
   async sync() {
     if (!this.authorized || this.busy) return;
@@ -88,7 +88,7 @@ export class FirebaseCards {
       metadata.forEach(item => {const data = item.data(); if (item.id === 'reading' && data.lastVerse) {this.lastVerse = data.lastVerse; this.lastVerseUpdatedAt = data.updatedAt || 0;}});
       if (this.lastVerse) pending.push(setDoc(doc(this.db, 'users', this.user.sub, 'metadata', 'reading'), {lastVerse:this.lastVerse, updatedAt:this.lastVerseUpdatedAt}));
       await Promise.all(pending);
-      this.backup(); this.status = 'Up to date.';
+      this.backup(); this.synced = true; this.status = 'Up to date.';
     } catch (error) {
       this.status = `${error.message} ${this.backupAvailable === false ? 'Keep this page open to preserve local changes.' : 'Your browser backup remains available.'}`;
       throw error;

@@ -106,7 +106,8 @@ export function mergeDecks(...decks) {
   const result = {};
   for (const deck of decks) for (const [id, card] of Object.entries(deck || {})) {
     if (!card || typeof card !== 'object' || !Number.isFinite(card.updatedAt) || !Number.isFinite(card.due) ||
-        !/^[a-z0-9]+-entry-\d+$/.test(id)) continue;
+        // Accept both the current `{letter}-{number}` ids and the legacy `{letter}-entry-{number}` ones.
+        !/^(?:[a-z0-9]+-entry-|[a-z]+-)\d+$/.test(id)) continue;
     if (!result[id] || card.updatedAt >= result[id].updatedAt) result[id] = {...card};
   }
   return result;
