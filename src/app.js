@@ -127,9 +127,8 @@ function entryCard(id, inDialog = false) {
   const next = position >= 0 && position < sequence.length - 1 ? sequence[position + 1] : '';
   const showSequenceNav = entryContext && (entryContext.type !== 'study' || browseMode);
   const nav = showSequenceNav ? `<button class="icon-button" data-entry-nav="${esc(next)}" aria-label="Next word" title="Next word" ${next ? '' : 'disabled'}>${svgIcon('next')}</button><button class="icon-button" data-entry-nav="${esc(previous)}" aria-label="Previous word" title="Previous word" ${previous ? '' : 'disabled'}>${svgIcon('prev')}</button>` : '';
-  const askedAgo = entryContext?.type === 'study' && browseMode && entryContext.askedAt ? `<span class="study-asked-ago">${esc(timeAgo(entryContext.askedAt))}</span>` : '';
   const close = inDialog ? entryContext?.type === 'study' ? '<button class="icon-button card-close" data-study-browse-close aria-label="Close card" title="Close card">' + svgIcon('close') + '</button>' : '<button id="close-dialog" class="icon-button card-close" aria-label="Close dictionary card" title="Close">' + svgIcon('close') + '</button>' : '';
-  const controls = `<div class="card-actions" dir="rtl">${close}${heart(id)}${askedAgo}${nav}<button class="copy-card icon-button" data-copy-card="${esc(id)}" aria-label="Copy Urdu markdown" title="Copy Urdu markdown">${svgIcon('copy')}</button></div>`;
+  const controls = `<div class="card-actions" dir="rtl">${close}${heart(id)}${nav}<button class="copy-card icon-button" data-copy-card="${esc(id)}" aria-label="Copy Urdu markdown" title="Copy Urdu markdown">${svgIcon('copy')}</button></div>`;
   return `<article class="entry-card"><header class="entry-header"><div class="entry-heading"><h2 dir="rtl" lang="ar">${esc(entry.word)}</h2><small>${esc(entry.id)}</small></div>${children.length ? '<span class="badge">ROOT</span>' : ''}${controls}</header><div class="entry-body"><div class="forms" dir="rtl">${root}${entry.nouns ? `<div class="form-item"><span>Nouns</span>${esc(entry.nouns)}</div>` : ''}${entry.verbs ? `<div class="form-item"><span>Verbs</span>${esc(entry.verbs.split('|')[0].trim())}</div>` : ''}</div>${entry.markdown_ur ? `<div class="urdu" lang="ur" dir="rtl">${markdown(entry.markdown_ur)}</div>` : '<p class="muted">An Urdu explanation is not available for this entry yet.</p>'}${children.length ? `<p class="muted">Words from this root</p><div class="related">${children.map(e => `<button class="word-chip" data-entry="${esc(e.id)}">${esc(e.word)}</button>`).join('')}</div>` : ''}</div></article>`;
 }
 function openEntry(id, updateLocation = readLocation().page === 'dictionary') {
@@ -319,20 +318,7 @@ function studyStats(study) {
   const progress = study.progress || {};
   const now = Date.now(), studiedCount = cards.filter(id => (progress[id]?.reviews || 0) > 0).length;
   const due = cards.filter(id => (progress[id]?.due || 0) <= now);
-  const upcoming = new Map();
-  const today = new Date(); today.setHours(0,0,0,0);
-  for (const id of cards) {
-    const dueAt = progress[id]?.due || 0;
-    if (dueAt <= now) continue;
-    const date = new Date(dueAt); date.setHours(0,0,0,0);
-    const days = Math.round((date - today) / 86400000);
-    const label = days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : date.toLocaleDateString(undefined,{month:'short',day:'numeric'});
-    upcoming.set(label, (upcoming.get(label) || 0) + 1);
-  }
-  return {cards, studiedCount, due, upcoming:[...upcoming.entries()]};
-}
-function dueSummary(upcoming) {
-  return upcoming.length ? upcoming.slice(0,4).map(([day,count]) => `${day}: ${count}`).join(' · ') : 'No cards scheduled yet.';
+  return {cards, studiedCount, due};
 }
 function parseStudyRange(input) {
   const value = input.trim();
@@ -414,13 +400,20 @@ async function recoverStudyCards(id, study) {
   return cards;
 }
 function renderStudy() {
-  if (!cloud.authorized) {$('#study-area').innerHTML = ''; return;}
   if (studyBusy) return;
+  // While sign-in is in progress (popup open, redirect returning or Firebase
+  // auth still connecting) the Study page shows loading bars instead of data.
+  if (firebase && cloud.mode !== 'firebase' && (firebase.busy || !firebase.ready)) {
+    if ($('#study-dialog').open) $('#study-dialog').close();
+    $('#study-area').innerHTML = `<div class="empty" role="status"><span class="empty-symbol">◌</span><h2>${firebase.busy ? 'Signing in…' : 'Connecting…'}</h2><div class="study-loading" aria-hidden="true"><span class="study-loading-bar" style="width:62%"></span><span class="study-loading-bar" style="width:86%"></span><span class="study-loading-bar" style="width:48%"></span><span class="study-loading-bar" style="width:74%"></span></div></div>`;
+    return;
+  }
+  if (!cloud.authorized) {$('#study-area').innerHTML = ''; return;}
   ensureGeneralStudy();
   const studies = Object.entries(cloud.studies || {}).filter(([, study]) => !study.deleted).sort((a,b) => a[0] === 'General' ? -1 : b[0] === 'General' ? 1 : a[0].localeCompare(b[0]));
   const active = studyId ? studies.find(([id]) => id === studyId || id === (studies.find(([,item]) => item.name === studyId)?.[0])) : null;
   if (!active) {
-    const list = studies.length ? `<div class="study-list">${studies.map(([id, study]) => {const stats=studyStats(study);return `<article class="study-item"><button class="study-open" data-study="${esc(id)}"><strong>${esc(study.name)}</strong><small>${stats.studiedCount} / ${stats.cards.length} studied · ${stats.due.length} due${stats.upcoming.length ? ` · ${esc(dueSummary(stats.upcoming))}` : ''}</small></button><button class="icon-button book-icon" data-browse-study="${esc(id)}" aria-label="Browse ${esc(study.name)} cards" title="Browse cards">▤</button>${id !== 'General' ? `<button class="icon-button" data-delete-study="${esc(id)}" aria-label="Delete ${esc(study.name)}" title="Delete study">×</button>` : ''}</article>`;}).join('')}</div>` : '';
+    const list = studies.length ? `<div class="study-list">${studies.map(([id, study]) => {const stats=studyStats(study);return `<article class="study-item"><button class="study-open" data-study="${esc(id)}"><strong>${esc(study.name)}</strong><small>${stats.studiedCount} / ${stats.cards.length} studied · ${stats.due.length} due</small></button><button class="icon-button book-icon" data-browse-study="${esc(id)}" aria-label="Browse ${esc(study.name)} cards" title="Browse cards">▤</button>${id !== 'General' ? `<button class="icon-button" data-delete-study="${esc(id)}" aria-label="Delete ${esc(study.name)}" title="Delete study">×</button>` : ''}</article>`;}).join('')}</div>` : '';
     const localNote = cloud.mode === 'local' ? `<p class="local-note">Cards and studies are saved on this device only. <button type="button" class="text-button" data-signin>Sign in to sync</button></p>` : '';
     $('#study-area').innerHTML = `${localNote}<form id="create-study" class="study-create"><label for="study-range">Create a study</label><div><input id="study-range" placeholder="1:1-3:73, 23 or 23-25" required autocomplete="off"><button class="button" type="submit">Create study</button></div><label class="study-checkbox"><input id="only-new-words" type="checkbox"> Only new words</label><p class="muted">Use a verse range such as 1:1-3:73, a Surah number such as 23 for the whole Surah, or a Surah range such as 23-25.</p></form>${list}`;
     return;
@@ -430,11 +423,13 @@ function renderStudy() {
   if (!studyCardId || !cards.includes(studyCardId)) studyCardId = stats.due[0] || cards[0] || null;
   if (!studyCardId) {$('#study-area').innerHTML = `<div class="empty"><span class="empty-symbol">✓</span><h2>${stats.studiedCount} / ${cards.length} cards studied</h2><p>This study has no cards yet.</p><button class="button secondary" data-studies>← All studies</button></div>`; return;}
   const entry = entries.get(studyCardId);
-  entryContext = {type:'study', ids:cards, askedAt:selected.progress?.[studyCardId]?.updatedAt || 0};
+  entryContext = {type:'study', ids:cards};
   const progress = selected.progress?.[studyCardId] || {due:0,interval:0,ease:2.5,reviews:0,lapses:0,updatedAt:0};
+  // Cards shown before report how long ago they were asked; brand-new cards do not.
+  const askedAgo = progress.reviews > 0 && progress.updatedAt ? ` · ${esc(timeAgo(progress.updatedAt))}` : '';
   const actions = browseMode ? '' : revealed ? `<div class="ratings">${[['failed','Again'],['difficult','Hard'],['medium','Medium'],['easy','Easy']].map(([grade,label]) => `<button class="rating ${grade}" data-study-grade="${grade}">${grade === 'failed' ? 'Again' : label}<small>${grade === 'failed' ? 'in 10m' : duration(progress, grade)}</small></button>`).join('')}</div>` : '';
   const revealAttrs = !browseMode && !revealed ? 'class="study-modal-card study-click-to-reveal" role="button" tabindex="0" aria-label="Reveal meaning"' : 'class="study-modal-card"';
-  $('#study-dialog-content').innerHTML = `<div class="study-modal-top"><span>${esc(selected.name)} · ${stats.studiedCount} / ${cards.length} studied · ${stats.due.length} due</span><button class="icon-button" data-studies aria-label="Close study" title="Close">×</button></div><div ${revealAttrs}>${revealed ? entryCard(studyCardId) : `<div class="study-front"><div class="study-word" dir="rtl" lang="ar">${esc(entry.word)}</div></div>`}</div>${actions ? `<div class="study-modal-actions">${actions}</div>` : ''}`;
+  $('#study-dialog-content').innerHTML = `<div class="study-modal-top"><span>${esc(selected.name)} · ${stats.studiedCount} / ${cards.length} studied · ${stats.due.length} due${askedAgo}</span><button class="icon-button" data-studies aria-label="Close study" title="Close">×</button></div><div ${revealAttrs}>${revealed ? entryCard(studyCardId) : `<div class="study-front"><div class="study-word" dir="rtl" lang="ar">${esc(entry.word)}</div></div>`}</div>${actions ? `<div class="study-modal-actions">${actions}</div>` : ''}`;
   if (!$('#study-dialog').open) $('#study-dialog').showModal();
 }
 function renderAuth() {

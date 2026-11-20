@@ -51,6 +51,11 @@ body:has(dialog[open]){overflow:hidden}dialog::backdrop{background:#172d4e80;bac
 .icon-button:focus,.heart:focus{outline:none}
 .icon-button:focus-visible,.heart:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
 @media(max-width:480px){.card-actions{gap:6px}.entry-header .heart,.entry-header .card-close,.card-actions .icon-button{width:32px;height:32px}.card-actions .icon-button svg,.entry-header .card-close svg{width:15px;height:15px}.heart svg{width:17px;height:17px}.entry-heading{min-width:0}.entry-heading h2{font-size:24px;overflow-wrap:anywhere}}
-.study-asked-ago{font-size:11px;white-space:nowrap;color:var(--muted)}
+// Animated skeleton bars shown on the Study page while sign-in connects.
+.study-loading{display:grid;gap:10px;max-width:340px;margin:14px auto 0}
+.study-loading-bar{display:block;height:14px;border-radius:7px;background:#e4ebf5;position:relative;overflow:hidden}
+.study-loading-bar::after{content:'';position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,#f5f8fc 45%,transparent 90%);animation:study-loading-sweep 1.2s ease-in-out infinite}
+.study-loading-bar:nth-child(2)::after{animation-delay:.15s}.study-loading-bar:nth-child(3)::after{animation-delay:.3s}.study-loading-bar:nth-child(4)::after{animation-delay:.45s}
+@keyframes study-loading-sweep{to{transform:translateX(100%)}}
 @media(max-width:600px){.study-dialog{position:fixed;inset:0;width:100%;max-width:none;height:100dvh;max-height:100dvh;margin:0;border-radius:0}.study-modal-actions{flex-wrap:wrap;padding-inline:12px}.study-modal-actions .ratings{min-width:100%;order:1}.study-front{padding:40px 16px}.study-word{font-size:58px}}
 
