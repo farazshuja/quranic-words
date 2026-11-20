@@ -405,7 +405,7 @@ function renderStudy() {
   // auth still connecting) the Study page shows loading bars instead of data.
   if (firebase && cloud.mode !== 'firebase' && (firebase.busy || !firebase.ready)) {
     if ($('#study-dialog').open) $('#study-dialog').close();
-    $('#study-area').innerHTML = `<div class="empty" role="status"><span class="empty-symbol">◌</span><h2>${firebase.busy ? 'Signing in…' : 'Connecting…'}</h2><div class="study-loading" aria-hidden="true"><span class="study-loading-bar" style="width:62%"></span><span class="study-loading-bar" style="width:86%"></span><span class="study-loading-bar" style="width:48%"></span><span class="study-loading-bar" style="width:74%"></span></div></div>`;
+    $('#study-area').innerHTML = `<div class="empty" role="status"><span class="empty-symbol">◌</span><h2>${firebase.busy ? 'Signing in…' : 'Connecting…'}</h2><div class="study-loading" aria-hidden="true"><span class="study-loading-bar"></span><span class="study-loading-bar"></span><span class="study-loading-bar"></span><span class="study-loading-bar"></span></div></div>`;
     return;
   }
   if (!cloud.authorized) {$('#study-area').innerHTML = ''; return;}

@@ -51,7 +51,7 @@ body:has(dialog[open]){overflow:hidden}dialog::backdrop{background:#172d4e80;bac
 .icon-button:focus,.heart:focus{outline:none}
 .icon-button:focus-visible,.heart:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
 @media(max-width:480px){.card-actions{gap:6px}.entry-header .heart,.entry-header .card-close,.card-actions .icon-button{width:32px;height:32px}.card-actions .icon-button svg,.entry-header .card-close svg{width:15px;height:15px}.heart svg{width:17px;height:17px}.entry-heading{min-width:0}.entry-heading h2{font-size:24px;overflow-wrap:anywhere}}
-// Animated skeleton bars shown on the Study page while sign-in connects.
+/* Animated skeleton bars shown on the Study page while sign-in connects. */
 .study-loading{display:grid;gap:14px;row-gap:14px;padding:16px 0 2px;max-width:340px;margin:14px auto 0}
 .study-loading-bar{display:block;height:16px;border-radius:8px;background:#e4ebf5;position:relative;overflow:hidden;box-shadow:0 1px 2px #ffffff66}
 .study-loading-bar::after{content:'';position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,#f5f8fc 45%,transparent 90%);animation:study-loading-sweep 1.2s ease-in-out infinite}
