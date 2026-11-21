@@ -515,7 +515,6 @@ async function start() {
     void firebase.authReady.then(() => {
       if (firebase.authorized) {cloud = firebase; renderAuth();}
     });
-    $('#dictionary-count').textContent = `${entries.size.toLocaleString()} entries, grouped by Arabic letter and root. Select any word to explore.`;
     $('#app-version').textContent = config.version ? `v${config.version}` : '';
     $('#startup').hidden = true; renderAuth(); route({skipVerseLoad:true});
     const state = readLocation();
@@ -693,7 +692,23 @@ $('#keyboard-layout-dialog').addEventListener('click', event => {if (event.targe
 $('#keyboard-layout-dialog').addEventListener('close', () => $('#toc-info').setAttribute('aria-expanded', 'false'));
 window.addEventListener('popstate', () => {if (manifest) route();});
 window.addEventListener('online', () => {if (cloud?.authorized) void cloud.sync();});
-window.addEventListener('focus', () => {if (cloud) renderAuth();});
-setInterval(() => {if (cloud) renderAuth();}, 60000);
+// Signed-in devices pull the latest remote cards and studies whenever the app
+// becomes active again (tab refocus, PWA resumed from background) and once a
+// minute while visible, so a device that was left open picks up progress made
+// on another device and shows the same due cards and next card.
+function refreshFromCloud() {
+  if (!cloud) return;
+  if (cloud.mode === 'firebase' && cloud.authorized && !cloud.busy && !studyBusy) {
+    void cloud.sync().then(() => {
+      // The open card may have been graded on another device; recompute the
+      // next due card from the freshly synced progress.
+      if (studyId && !revealed && !browseMode) {studyCardId = null; renderStudy();}
+    }).catch(() => {});
+  }
+  renderAuth();
+}
+window.addEventListener('focus', refreshFromCloud);
+document.addEventListener('visibilitychange', () => {if (!document.hidden) refreshFromCloud();});
+setInterval(() => {if (!document.hidden) refreshFromCloud();}, 60000);
 void start();
 
