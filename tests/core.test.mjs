@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {alignWords, parseReference, verseReferences, schedule, mergeDecks, searchToc, normalizeWithSpans} from '../src/core.js';
+import {alignWords, parseReference, verseReferences, schedule, mergeDecks, searchToc, normalizeWithSpans, featureTags} from '../src/core.js';
 import {syncData} from '../scripts/sync-data.mjs';
 
 test('meaning references recognize verses and ranges while rejecting invalid Ayahs', () => {
@@ -27,6 +27,14 @@ test('verse references reject malformed and out-of-range input', () => {
   const counts = {1:7, 2:286, 114:6};
   assert.equal(parseReference(' 2 : 255 ', counts), '2:255');
   for (const ref of ['1:8', '0:1', '115:1', '2:0', '2:255:1', '2x:1', '2:1.5']) assert.throws(() => parseReference(ref, counts));
+});
+
+test('feature tags map feature names to abbreviations with full-name tooltips', () => {
+  assert.deepEqual(featureTags('noun, verbal noun|feminine'), [
+    {abbr:'n.', full:'Noun'}, {abbr:'v. n.', full:'Verbal noun'}, {abbr:'fem.', full:'Feminine'}]);
+  assert.deepEqual(featureTags(['n.','v.n.','pass. part.']), [
+    {abbr:'n.', full:'Noun'}, {abbr:'v. n.', full:'Verbal noun'}, {abbr:'pass. part.', full:'Passive participle'}]);
+  assert.deepEqual(featureTags(undefined), []);
 });
 test('API words map to the source position, preserving missing IDs', () => {
   const source = [{arabic:'بسم',entryId:'seen-entry-318'}, {arabic:'الله',entryId:'alif-entry-211'}, {arabic:'الرحمن'}];
@@ -70,7 +78,7 @@ test('standalone build preserves public inputs and publishes only explained entr
   assert.deepEqual(masters.map(hash),before);
   const entries = JSON.parse(readFileSync(new URL('../dist/data/entries.json',import.meta.url)));
   const original = JSON.parse(readFileSync(masters[0]));
-  const allowed = ['id','word','markdown_ur','nouns','verbs','root'];
+  const allowed = ['id','word','markdown_ur','nouns','verbs','root','features'];
   for (const entry of original) assert.ok(Object.keys(entry).every(key=>allowed.includes(key)));
   const explained = original.filter(e=>typeof e.markdown_ur==='string' && e.markdown_ur.trim());
   assert.equal(entries.length,explained.length);

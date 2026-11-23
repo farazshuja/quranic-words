@@ -30,7 +30,7 @@ const siteVersion = async () => {
   return `${version.major}.${version.minor}.${version.patch}`;
 };
 const appVersion = await siteVersion();
-const allowedEntryFields = new Set(['id','word','markdown_ur','nouns','verbs','root']);
+const allowedEntryFields = new Set(['id','word','markdown_ur','nouns','verbs','root','features']);
 for (const entry of entries) {
   if (Object.keys(entry).some(key => !allowedEntryFields.has(key)))
     throw new Error('Public dictionary data contains an unexpected field. Export sanitized data from the private repository first.');
@@ -40,8 +40,8 @@ const explainedEntries = entries.filter(e => typeof e.markdown_ur === 'string' &
 const explainedIds = new Set(explainedEntries.map(e => e.id));
 const roots = new Map(entries.filter(e => e.word.includes('/')).map(e => [`${e.id.split('-')[0]}:${e.word.trim()}`, e]));
 // Explicit allowlist prevents English markdown or other master fields leaking.
-const publicEntries = explainedEntries.map(({id, word, markdown_ur, nouns = '', verbs = '', root = ''}) =>
-  ({id, word, markdown_ur, nouns, verbs, root, rootId: root && explainedIds.has(roots.get(`${id.split('-')[0]}:${root.trim()}`)?.id) ? roots.get(`${id.split('-')[0]}:${root.trim()}`).id : null}));
+const publicEntries = explainedEntries.map(({id, word, markdown_ur, nouns = '', verbs = '', root = '', features = ''}) =>
+  ({id, word, markdown_ur, nouns, verbs, root, features, rootId: root && explainedIds.has(roots.get(`${id.split('-')[0]}:${root.trim()}`)?.id) ? roots.get(`${id.split('-')[0]}:${root.trim()}`).id : null}));
 const toc = Object.fromEntries(alphabet.map(([id]) => [id, []]));
 const nodes = new Map();
 const explainedById = new Map(explainedEntries.map(e => [e.id, e]));

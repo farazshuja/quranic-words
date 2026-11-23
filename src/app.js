@@ -1,5 +1,5 @@
 import {escapeHtml as esc, parseUrdu} from './markup.js';
-import {alphabet, normalize, searchToc, keyboardMap, altGrMap, parseReference, verseReferences, alignWords, schedule} from './core.js';
+import {alphabet, normalize, searchToc, keyboardMap, altGrMap, parseReference, verseReferences, alignWords, schedule, featureTags} from './core.js';
 import {FirebaseCards} from './firebase-cards.js';
 import {LocalCards} from './local-cards.js';
 
@@ -120,6 +120,8 @@ function entryCard(id, inDialog = false) {
   const entry = entries.get(id);
   if (!entry) return '<div class="empty"><h2>No word found</h2><p>This word has not been linked to a dictionary entry yet.</p></div>';
   const children = [...entries.values()].filter(e => e.rootId === id && e.id !== id);
+  const tags = featureTags(entry.features);
+  const featuresHtml = tags.length ? `<span class="feature-tags" dir="ltr" aria-label="Features">${tags.map(t => `<span class="feature-tag" title="${esc(t.full)}">${esc(t.abbr)}</span>`).join(' ')}</span>` : '';
   const root = entry.root && entry.root !== entry.word ? `<div class="form-item"><span>Root</span>${entry.rootId ? `<a class="root-link" href="dictionary?card=${encodeURIComponent(cardUrlReference(entries.get(entry.rootId)))}" data-entry="${esc(entry.rootId)}">${esc(entry.root)} ↗</a>` : esc(entry.root)}</div>` : '';
   const sequence = entryContext?.ids || [];
   const position = sequence.indexOf(id);
@@ -129,7 +131,7 @@ function entryCard(id, inDialog = false) {
   const nav = showSequenceNav ? `<button class="icon-button" data-entry-nav="${esc(next)}" aria-label="Next word" title="Next word" ${next ? '' : 'disabled'}>${svgIcon('next')}</button><button class="icon-button" data-entry-nav="${esc(previous)}" aria-label="Previous word" title="Previous word" ${previous ? '' : 'disabled'}>${svgIcon('prev')}</button>` : '';
   const close = inDialog ? entryContext?.type === 'study' ? '<button class="icon-button card-close" data-study-browse-close aria-label="Close card" title="Close card">' + svgIcon('close') + '</button>' : '<button id="close-dialog" class="icon-button card-close" aria-label="Close dictionary card" title="Close">' + svgIcon('close') + '</button>' : '';
   const controls = `<div class="card-actions" dir="rtl">${close}${heart(id)}${nav}<button class="copy-card icon-button" data-copy-card="${esc(id)}" aria-label="Copy Urdu markdown" title="Copy Urdu markdown">${svgIcon('copy')}</button></div>`;
-  return `<article class="entry-card"><header class="entry-header"><div class="entry-heading"><h2 dir="rtl" lang="ar">${esc(entry.word)}</h2><small>${esc(entry.id)}</small></div>${children.length ? '<span class="badge">ROOT</span>' : ''}${controls}</header><div class="entry-body"><div class="forms" dir="rtl">${root}${entry.nouns ? `<div class="form-item"><span>Nouns</span>${esc(entry.nouns)}</div>` : ''}${entry.verbs ? `<div class="form-item"><span>Verbs</span>${esc(entry.verbs.split('|')[0].trim())}</div>` : ''}</div>${entry.markdown_ur ? `<div class="urdu" lang="ur" dir="rtl">${markdown(entry.markdown_ur)}</div>` : '<p class="muted">An Urdu explanation is not available for this entry yet.</p>'}${children.length ? `<p class="muted">Words from this root</p><div class="related">${children.map(e => `<button class="word-chip" data-entry="${esc(e.id)}">${esc(e.word)}</button>`).join('')}</div>` : ''}</div></article>`;
+  return `<article class="entry-card"><header class="entry-header"><div class="entry-heading"><h2 dir="rtl" lang="ar">${esc(entry.word)}</h2><small>${esc(entry.id)}</small></div>${children.length ? '<span class="badge">ROOT</span>' : ''}${controls}</header><div class="entry-body"><div class="forms" dir="rtl">${root}${entry.nouns ? `<div class="form-item"><span>Nouns</span>${esc(entry.nouns)}</div>` : ''}${entry.verbs ? `<div class="form-item"><span>Verbs</span>${esc(entry.verbs.split('|')[0].trim())}</div>` : ''}${featuresHtml}</div>${entry.markdown_ur ? `<div class="urdu" lang="ur" dir="rtl">${markdown(entry.markdown_ur)}</div>` : '<p class="muted">An Urdu explanation is not available for this entry yet.</p>'}${children.length ? `<p class="muted">Words from this root</p><div class="related">${children.map(e => `<button class="word-chip" data-entry="${esc(e.id)}">${esc(e.word)}</button>`).join('')}</div>` : ''}</div></article>`;
 }
 function openEntry(id, updateLocation = readLocation().page === 'dictionary') {
   const page = readLocation().page;

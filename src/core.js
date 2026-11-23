@@ -1,5 +1,48 @@
 export const alphabet = Object.entries({alif:'أ',ba:'ب',ta:'ت',tha:'ث',jeem:'ج',ha:'ح',khaa:'خ',dal:'د',dhal:'ذ',raa:'ر',zaay:'ز',seen:'س',sheen:'ش',saad:'ص',daad:'ض',taa:'ط',dhaa:'ظ',ayen:'ع',ghayen:'غ',faa:'ف',qaf:'ق',kaf:'ك',laam:'ل',meem:'م',noon:'ن',waw:'و',haa:'ه',yaa:'ي'});
 
+// Dictionary feature abbreviations (from the introduction's abbreviation list):
+// full term -> abbreviation shown in the UI; hovering reveals the full name.
+export const featureAbbreviations = {
+  'accusative':'accus.', 'active participle':'act. part.', 'anno domini':'A.D.',
+  'adjective':'adj.', 'adverb':'adv.', 'affirmative':'affirm.',
+  'year of the hijra':'A.H.', 'cardinal':'card.', 'compare':'cf.',
+  'collective':'coll.', 'compound numeral':'comp no.', 'demonstrative':'dem.',
+  'diminutive':'dimin.', 'for example':'e.g.', 'elative':'elat.',
+  'elliptical':'ellipt.', 'feminine':'fem.', 'genitive':'gen.', 'that is':'i.e.',
+  'imperative':'imper.', 'impersonal':'impers.', 'imperfect':'impf.',
+  'intensive':'intens.', 'interjection':'interj.', 'intransitive':'intrans.',
+  'jurisprudence':'jur.', 'masculine':'masc.', 'noun':'n.', 'number':'no.',
+  'nominative':'nom.', 'ordinal':'ord.', 'particle':'part.', 'passive':'pass.',
+  'passive participle':'pass. part.', 'perfect':'perf.', 'plural':'pl.',
+  'preposition':'prep.', 'pronoun':'pron.', 'pronominal':'pronom.',
+  'which see':'q.v.', 'quadrilateral verb':'quad. v.',
+  'adjectival active participle':'quasi-act.', 'adjectival passive participle':'quasi-pass.', 'adjectival passive principal':'quasi-pass.',
+  'relative':'rel.', 'singular':'sing.', 'transitive':'trans.', 'verb':'v.',
+  'verbal noun':'v. n.', 'changed into':'>', 'idiomatic usage':'*'
+};
+// Reverse index so data may already use the abbreviation form.
+const featureKey = text => text.trim().toLowerCase().replace(/[.,;|]/g, ' ').replace(/\s+/g, ' ').trim();
+const featureLookup = new Map();
+for (const [full, abbr] of Object.entries(featureAbbreviations)) {
+  featureLookup.set(featureKey(full), {abbr, full: full.replace(/^\w/, c => c.toUpperCase())});
+  featureLookup.set(featureKey(abbr), {abbr, full: full.replace(/^\w/, c => c.toUpperCase())});
+}
+
+// Accepts an array of feature names or a delimited string; returns
+// {abbr, full} pairs where `abbr` is displayed and `full` is the tooltip.
+export function featureTags(features) {
+  const items = Array.isArray(features) ? features :
+    typeof features === 'string' ? features.split(/[,;|]/) : [];
+  const tags = [];
+  for (const item of items) {
+    if (!item || !item.trim()) continue;
+    const key = featureKey(item);
+    if (!key) continue;
+    tags.push(featureLookup.get(key) || {abbr: item.trim(), full: item.trim().replace(/^\w/, c => c.toUpperCase())});
+  }
+  return tags;
+}
+
 export function normalize(text = '') {
   return text.normalize('NFKD').replace(/[\p{M}\u0640\u06D6-\u06ED]/gu, '').replace(/[أإآٱ]/g, 'ا').replace(/ى/g, 'ي').replace(/[^\p{L}]/gu, '');
 }
