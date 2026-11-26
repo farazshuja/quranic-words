@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {alignWords, parseReference, verseReferences, schedule, mergeDecks, searchToc, normalizeWithSpans, featureTags} from '../src/core.js';
+import {alignWords, parseReference, verseReferences, schedule, mergeDecks, searchToc, normalizeWithSpans, featureTags, todayQueue, studyLimits, dayEnd, STUDY_LIMIT_DEFAULTS} from '../src/core.js';
 import {syncData} from '../scripts/sync-data.mjs';
 
 test('meaning references recognize verses and ranges while rejecting invalid Ayahs', () => {
@@ -67,6 +67,34 @@ test('newer tombstones survive merges with stale saved cards', () => {
   assert.equal(mergeDecks(removed,saved)['alif-entry-1'].deleted,true);
   assert.equal(mergeDecks({'alif-1':{due:0,updatedAt:10}})['alif-1'].due,0);
   assert.deepEqual(mergeDecks({'bad':{due:0,updatedAt:1},'alif-entry-2':{due:'invalid',updatedAt:1}}),{});
+});
+test('study limits default to 50 new and 50 review cards per day', () => {
+  assert.deepEqual(studyLimits({}), STUDY_LIMIT_DEFAULTS);
+  assert.deepEqual(studyLimits({settings:{maxNew:3}}), {maxNew:3, maxReview:50});
+  assert.deepEqual(studyLimits({settings:{maxNew:-2, maxReview:'x'}}), STUDY_LIMIT_DEFAULTS);
+});
+test('today queue caps due reviews and new cards by the daily limits', () => {
+  const now = Date.UTC(2026, 0, 15, 12), day = 86400000, end = dayEnd(now);
+  const study = {
+    cards:['a1','a2','a3','a4','a5','a6','a7'],
+    settings:{maxNew:2, maxReview:2},
+    progress:{
+      a1:{due:now - 2*day, reviews:3},      // overdue review, oldest first
+      a2:{due:now, reviews:1},              // due now
+      a3:{due:now + 3600000, reviews:2},    // due later today
+      a4:{due:now + day, reviews:2},        // due tomorrow: excluded
+      a5:{due:end, reviews:4},              // last minute of today: included
+      a6:{due:now - day, reviews:0},        // never studied: new card
+      a7:{due:now - day, reviews:0}         // never studied: new card
+    }
+  };
+  // Review cap 2 keeps only the two oldest due reviews; new cap 2 keeps two new cards.
+  assert.deepEqual(todayQueue(study, study.cards, now), ['a1','a2','a6','a7']);
+  // With the default 50/50 limits nothing is held back and tomorrow's reviews stay out.
+  const open = {...study, settings:{}};
+  assert.deepEqual(todayQueue(open, study.cards, now), ['a1','a2','a3','a5','a6','a7']);
+  // Zero limits leave nothing to study today.
+  assert.deepEqual(todayQueue({...study, settings:{maxNew:0, maxReview:0}}, study.cards, now), []);
 });
 test('standalone build preserves public inputs and publishes only explained entries with valid TOC roots', async () => {
   await syncData({optional: true});

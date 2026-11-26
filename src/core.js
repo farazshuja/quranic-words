@@ -145,6 +145,28 @@ export function schedule(card, grade, now = Date.now()) {
     lapses: (card.lapses || 0) + (grade === 'failed' ? 1 : 0), grade, updatedAt: now};
 }
 
+// Daily limits per study: how many new cards and due review cards may be asked
+// today. Stored on the study document so they sync across devices; 50/50 until
+// the user changes them in the study settings dialog.
+export const STUDY_LIMIT_DEFAULTS = {maxNew:50, maxReview:50};
+export function studyLimits(study) {
+  const settings = study?.settings || {};
+  const read = value => Number.isFinite(value) && value >= 0 ? Math.floor(value) : null;
+  return {maxNew: read(settings.maxNew) ?? STUDY_LIMIT_DEFAULTS.maxNew, maxReview: read(settings.maxReview) ?? STUDY_LIMIT_DEFAULTS.maxReview};
+}
+export function dayEnd(now = Date.now()) { const end = new Date(now); end.setHours(23,59,59,999); return end.getTime(); }
+// Today's queue: review cards due by the end of today (oldest due first, up to
+// Max Today Review) followed by brand-new cards (up to Max Today New). Cards
+// beyond the limits stay available on later days instead of appearing at once.
+// `cards` receives the study's cards already filtered to existing entries.
+export function todayQueue(study, cards = study.cards || [], now = Date.now()) {
+  const progress = study.progress || {}, limits = studyLimits(study), end = dayEnd(now);
+  const reviews = cards.filter(id => (progress[id]?.reviews || 0) > 0 && (progress[id].due || 0) <= end)
+    .sort((a, b) => (progress[a]?.due || 0) - (progress[b]?.due || 0)).slice(0, limits.maxReview);
+  const fresh = cards.filter(id => (progress[id]?.reviews || 0) === 0).slice(0, limits.maxNew);
+  return [...reviews, ...fresh];
+}
+
 export function mergeDecks(...decks) {
   const result = {};
   for (const deck of decks) for (const [id, card] of Object.entries(deck || {})) {

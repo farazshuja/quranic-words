@@ -1,5 +1,5 @@
 import {escapeHtml as esc, parseUrdu} from './markup.js';
-import {alphabet, normalize, searchToc, keyboardMap, altGrMap, parseReference, verseReferences, alignWords, schedule, featureTags} from './core.js';
+import {alphabet, normalize, searchToc, keyboardMap, altGrMap, parseReference, verseReferences, alignWords, schedule, featureTags, todayQueue, studyLimits} from './core.js';
 import {FirebaseCards} from './firebase-cards.js';
 import {LocalCards} from './local-cards.js';
 
@@ -16,6 +16,7 @@ let entries = new Map(), toc = {}, manifest, config, cloud, firebase;
 let currentRef = '1:1', currentWords = [], readerId = null, dialogId = null, requestId = 0;
 let entryContext = null;
 let selectedLetter = 'alif', studyId = null, studyCardId = null, revealed = false, browseMode = false, studied = 0;
+let settingsStudyId = null;
 let tocQuery = '', tocInputMode = 'auto', tocMatchIndex = 0;
 const surahCache = new Map();
 let qwords = null, studyBusy = false;
@@ -33,7 +34,8 @@ function svgIcon(name, filled = false) {
     close: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
     prev: '<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>',
     next: '<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>',
-    copy: '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>'
+    copy: '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+    settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>'
   };
   return `<svg viewBox="0 0 24 24" fill="${filled ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="${filled ? 1 : 2}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths[name]}</svg>`;
 }
@@ -305,7 +307,9 @@ function ensureGeneralStudy() {
   const old = cloud.studies.General;
   const cards = savedCards().map(([id]) => id);
   if (old && !old.deleted && cards.every(id => (old.cards || []).includes(id)) && (old.cards || []).every(id => cards.includes(id))) return;
-  cloud.mutateStudy('General', {name:'General', cards, progress:old?.progress || {}, updatedAt:Math.max(Date.now(), (old?.updatedAt || 0) + 1), deleted:false, permanent:true});
+  const next = {name:'General', cards, progress:old?.progress || {}, updatedAt:Math.max(Date.now(), (old?.updatedAt || 0) + 1), deleted:false, permanent:true};
+  if (old?.settings) next.settings = old.settings; // keep the daily limits.
+  cloud.mutateStudy('General', next);
 }
 function duration(card, grade) {
   const next = schedule(card, grade); return next.interval < 1 ? '10 minutes' : `${Math.round(next.interval)} ${Math.round(next.interval) === 1 ? 'day' : 'days'}`;
@@ -318,9 +322,8 @@ function timeAgo(timestamp) {
 function studyStats(study) {
   const cards = (study.cards || []).filter(id => entries.has(id));
   const progress = study.progress || {};
-  const now = Date.now(), studiedCount = cards.filter(id => (progress[id]?.reviews || 0) > 0).length;
-  const due = cards.filter(id => (progress[id]?.due || 0) <= now);
-  return {cards, studiedCount, due};
+  const studiedCount = cards.filter(id => (progress[id]?.reviews || 0) > 0).length;
+  return {cards, studiedCount, due: todayQueue(study, cards)};
 }
 function parseStudyRange(input) {
   const value = input.trim();
@@ -415,15 +418,24 @@ function renderStudy() {
   const studies = Object.entries(cloud.studies || {}).filter(([, study]) => !study.deleted).sort((a,b) => a[0] === 'General' ? -1 : b[0] === 'General' ? 1 : a[0].localeCompare(b[0]));
   const active = studyId ? studies.find(([id]) => id === studyId || id === (studies.find(([,item]) => item.name === studyId)?.[0])) : null;
   if (!active) {
-    const list = studies.length ? `<div class="study-list">${studies.map(([id, study]) => {const stats=studyStats(study);return `<article class="study-item"><button class="study-open" data-study="${esc(id)}"><strong>${esc(study.name)}</strong><small>${stats.studiedCount} / ${stats.cards.length} studied · ${stats.due.length} due</small></button><button class="icon-button book-icon" data-browse-study="${esc(id)}" aria-label="Browse ${esc(study.name)} cards" title="Browse cards">▤</button>${id !== 'General' ? `<button class="icon-button" data-delete-study="${esc(id)}" aria-label="Delete ${esc(study.name)}" title="Delete study">×</button>` : ''}</article>`;}).join('')}</div>` : '';
+    const list = studies.length ? `<div class="study-list">${studies.map(([id, study]) => {const stats=studyStats(study);return `<article class="study-item"><button class="study-open" data-study="${esc(id)}"><strong>${esc(study.name)}</strong><small>${stats.studiedCount} / ${stats.cards.length} studied · ${stats.due.length} due today</small></button><button class="icon-button book-icon" data-browse-study="${esc(id)}" aria-label="Browse ${esc(study.name)} cards" title="Browse cards">▤</button><button class="icon-button" data-study-settings="${esc(id)}" aria-label="Settings for ${esc(study.name)}" title="Study settings">${svgIcon('settings')}</button>${id !== 'General' ? `<button class="icon-button" data-delete-study="${esc(id)}" aria-label="Delete ${esc(study.name)}" title="Delete study">×</button>` : ''}</article>`;}).join('')}</div>` : '';
     const localNote = cloud.mode === 'local' ? `<p class="local-note">Cards and studies are saved on this device only. <button type="button" class="text-button" data-signin>Sign in to sync</button></p>` : '';
     $('#study-area').innerHTML = `${localNote}<form id="create-study" class="study-create"><label for="study-range">Create a study</label><div><input id="study-range" placeholder="1:1-3:73, 23 or 23-25" required autocomplete="off"><button class="button" type="submit">Create study</button></div><label class="study-checkbox"><input id="only-new-words" type="checkbox"> Only new words</label><p class="muted">Use a verse range such as 1:1-3:73, a Surah number such as 23 for the whole Surah, or a Surah range such as 23-25.</p></form>${list}`;
     return;
   }
   const [id, selected] = active;
   const stats = studyStats(selected), cards = stats.cards;
-  if (!studyCardId || !cards.includes(studyCardId)) studyCardId = stats.due[0] || cards[0] || null;
-  if (!studyCardId) {$('#study-area').innerHTML = `<div class="empty"><span class="empty-symbol">✓</span><h2>${stats.studiedCount} / ${cards.length} cards studied</h2><p>This study has no cards yet.</p><button class="button secondary" data-studies>← All studies</button></div>`; return;}
+  if (!studyCardId || !cards.includes(studyCardId)) studyCardId = stats.due[0] || null;
+  if (!studyCardId) {
+    if (cards.length) {
+      // Everything the daily limits allow has been asked: show the completed
+      // view inside the study dialog and point at the study settings.
+      $('#study-dialog-content').innerHTML = `<div class="study-modal-top"><span>${esc(selected.name)} · ${stats.studiedCount} / ${cards.length} studied</span><button class="icon-button" data-studies aria-label="Close study" title="Close">×</button></div><div class="study-complete"><span class="empty-symbol">✓</span><h2>All cards completed</h2><p>Nothing more is due today. You can configure more study cards by raising Max Today New and Max Today Review in this study's settings.</p><div class="study-complete-actions"><button class="button secondary" data-study-settings="${esc(id)}">Open settings</button><button class="button secondary" data-studies>← All studies</button></div></div>`;
+      if (!$('#study-dialog').open) $('#study-dialog').showModal();
+      return;
+    }
+    $('#study-area').innerHTML = `<div class="empty"><span class="empty-symbol">✓</span><h2>${stats.studiedCount} / ${cards.length} cards studied</h2><p>This study has no cards yet.</p><button class="button secondary" data-studies>← All studies</button></div>`; return;
+  }
   const entry = entries.get(studyCardId);
   entryContext = {type:'study', ids:cards};
   const progress = selected.progress?.[studyCardId] || {due:0,interval:0,ease:2.5,reviews:0,lapses:0,updatedAt:0};
@@ -431,8 +443,19 @@ function renderStudy() {
   const askedAgo = progress.reviews > 0 && progress.updatedAt ? ` · ${esc(timeAgo(progress.updatedAt))}` : '';
   const actions = browseMode ? '' : revealed ? `<div class="ratings">${[['failed','Again'],['difficult','Hard'],['medium','Medium'],['easy','Easy']].map(([grade,label]) => `<button class="rating ${grade}" data-study-grade="${grade}">${grade === 'failed' ? 'Again' : label}<small>${grade === 'failed' ? 'in 10m' : duration(progress, grade)}</small></button>`).join('')}</div>` : '';
   const revealAttrs = !browseMode && !revealed ? 'class="study-modal-card study-click-to-reveal" role="button" tabindex="0" aria-label="Reveal meaning"' : 'class="study-modal-card"';
-  $('#study-dialog-content').innerHTML = `<div class="study-modal-top"><span>${esc(selected.name)} · ${stats.studiedCount} / ${cards.length} studied · ${stats.due.length} due${askedAgo}</span><button class="icon-button" data-studies aria-label="Close study" title="Close">×</button></div><div ${revealAttrs}>${revealed ? entryCard(studyCardId) : `<div class="study-front"><div class="study-word" dir="rtl" lang="ar">${esc(entry.word)}</div></div>`}</div>${actions ? `<div class="study-modal-actions">${actions}</div>` : ''}`;
+  $('#study-dialog-content').innerHTML = `<div class="study-modal-top"><span>${esc(selected.name)} · ${stats.studiedCount} / ${cards.length} studied · ${stats.due.length} due today${askedAgo}</span><button class="icon-button" data-studies aria-label="Close study" title="Close">×</button></div><div ${revealAttrs}>${revealed ? entryCard(studyCardId) : `<div class="study-front"><div class="study-word" dir="rtl" lang="ar">${esc(entry.word)}</div></div>`}</div>${actions ? `<div class="study-modal-actions">${actions}</div>` : ''}`;
   if (!$('#study-dialog').open) $('#study-dialog').showModal();
+}
+function openStudySettings(id) {
+  const study = cloud?.studies?.[id];
+  if (!study) return;
+  settingsStudyId = id;
+  const limits = studyLimits(study);
+  $('#study-settings-name').textContent = study.name || id;
+  $('#study-max-new').value = limits.maxNew;
+  $('#study-max-review').value = limits.maxReview;
+  const dialog = $('#study-settings-dialog');
+  if (!dialog.open) dialog.showModal();
 }
 function renderAuth() {
   if (!cloud) return;
@@ -500,7 +523,7 @@ function route({skipVerseLoad = false} = {}) {
       const studies = Object.entries(cloud?.studies || {});
       studyId = studies.find(([id, item]) => id === state.study || item.name === state.study)?.[0] || state.study;
       const selected = cloud?.studies?.[studyId];
-      if (selected) {const cards=(selected.cards || []).filter(id=>entries.has(id)); studyCardId=cards.find(id=>(selected.progress?.[id]?.due || 0)<=Date.now()) || cards[0] || null; revealed = false; browseMode=false;}
+      if (selected) {const cards=(selected.cards || []).filter(id=>entries.has(id)); studyCardId = todayQueue(selected, cards)[0] || null; revealed = false; browseMode=false;}
     } else {studyId=null; studyCardId=null; browseMode=false;}
     renderAuth();
   }
@@ -565,6 +588,7 @@ document.addEventListener('click', async event => {
     $('#toc-info').setAttribute('aria-expanded', 'false');
     return;
   }
+  if (button.id === 'close-study-settings') {$('#study-settings-dialog').close(); return;}
   if (button.id === 'toc-mode-switch') {
     tocInputMode = tocInputMode === 'auto' ? 'sys' : 'auto';
     button.setAttribute('aria-checked', String(tocInputMode === 'sys'));
@@ -595,10 +619,11 @@ document.addEventListener('click', async event => {
       studyId = button.dataset.study || button.dataset.browseStudy;
       const selected=cloud.studies[studyId], cards=selected ? await recoverStudyCards(studyId, selected) : [];
       const validCards=cards.filter(id=>entries.has(id));
-      studyCardId = button.dataset.browseStudy ? validCards[0] || null : validCards.find(id=>(selected.progress?.[id]?.due || 0)<=Date.now()) || validCards[0] || null;
+      studyCardId = button.dataset.browseStudy ? validCards[0] || null : todayQueue(selected, validCards)[0] || null;
       browseMode = !!button.dataset.browseStudy; revealed = browseMode;
       writeLocation(`/study/${encodeURIComponent(studyId)}`); renderStudy();
     }
+    else if (button.dataset.studySettings) openStudySettings(button.dataset.studySettings);
     else if (button.dataset.openStudyCard) {studyCardId = button.dataset.openStudyCard; revealed = true; browseMode = true; renderStudy();}
     else if (button.dataset.deleteStudy) {
       const id = button.dataset.deleteStudy, old = cloud.studies[id];
@@ -647,9 +672,9 @@ document.addEventListener('click', async event => {
       const nextCard = schedule(oldCard, button.dataset.studyGrade, Math.max(Date.now(), oldCard.updatedAt + 1));
       progress[studyCardId] = nextCard;
       const nextStudy = {...current, progress, updatedAt:Math.max(Date.now(), current.updatedAt + 1)};
-      const cards = (current.cards || []).filter(entryId => entries.has(entryId));
-      const index = cards.indexOf(studyCardId), nextDue = cards.filter(entryId => (progress[entryId]?.due || 0) <= Date.now());
-      studyCardId = nextDue[0] || cards[(index + 1) % cards.length] || null; revealed = false;
+      // The next card comes from today's queue; with nothing left the study
+      // dialog switches to the "All cards completed" view.
+      studyCardId = todayQueue(nextStudy, (current.cards || []).filter(entryId => entries.has(entryId)))[0] || null; revealed = false;
       cloud.mutateStudy(studyId, nextStudy);
     }
     else if (button.dataset.grade && studyId && revealed && !cloud.studies?.[studyId]) {
@@ -672,6 +697,17 @@ $('#study-area').addEventListener('submit', event => {
   event.preventDefault();
   void createStudy($('#study-range').value, $('#only-new-words').checked).catch(error => {studyBusy = false; notice(error.message); renderStudy();});
 });
+$('#study-settings-form').addEventListener('submit', event => {
+  event.preventDefault();
+  const id = settingsStudyId, study = cloud?.studies?.[id];
+  $('#study-settings-dialog').close();
+  settingsStudyId = null;
+  if (!study) return;
+  const clamp = value => Math.max(0, Math.min(999, Math.round(Number(value) || 0)));
+  cloud.mutateStudy(id, {...study, settings:{...(study.settings || {}), maxNew:clamp($('#study-max-new').value), maxReview:clamp($('#study-max-review').value)}, updatedAt:Math.max(Date.now(), (study.updatedAt || 0) + 1)});
+  renderStudy();
+});
+$('#study-settings-dialog').addEventListener('close', () => {settingsStudyId = null;});
 $('#verse-form').addEventListener('submit', event => {event.preventDefault(); if (manifest) void loadVerse($('#reference').value);});
 $('#toc-search').addEventListener('input', event => {tocQuery = event.target.value; tocMatchIndex = 0; renderToc();});
 $('#toc-search').addEventListener('keydown', handleTocKeyDown);

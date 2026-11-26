@@ -42,6 +42,20 @@ body:has(dialog[open]){overflow:hidden}dialog::backdrop{background:#172d4e80;bac
 .study-modal-actions .ratings{flex:1;margin:0}
 .study-navigation{display:flex;align-items:center;gap:8px;color:var(--muted);white-space:nowrap}
 .study-item .study-open{min-width:0}.study-item .study-open strong{display:block}
+/* Per-study daily limits: gear button, settings dialog and completed view. */
+.study-item .icon-button{flex:0 0 36px}
+.study-item .icon-button svg{width:17px;height:17px;display:block}
+.study-settings-dialog{width:min(430px,92vw);padding:24px;background:#fff}
+.study-settings-dialog header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.study-settings-dialog h2{margin:0}
+.study-settings-dialog .muted{margin:4px 0 0;font-size:13px}
+.study-settings-dialog label{display:block;font-weight:600;margin:16px 0 6px;font-size:14px}
+.study-settings-dialog input{width:100%;padding:10px 12px;border:1px solid #d3dce9;border-radius:8px;background:#f9fbff}
+.study-settings-dialog .button{width:100%;margin-top:20px}
+.study-complete{flex:1;min-height:0;overflow:auto;display:grid;place-items:center;text-align:center;padding:40px 24px;color:var(--muted)}
+.study-complete h2{color:#556176;margin:8px 0}
+.study-complete p{max-width:430px;font-size:14px;line-height:1.7;margin:8px 0 0}
+.study-complete-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px;justify-content:center}
 .card-actions{display:flex;align-items:center;gap:8px;margin-left:auto}.card-actions .heart{flex:0 0 auto}.card-actions .icon-button{flex:0 0 auto}.entry-header .card-actions{padding:0}.book-icon{font-size:22px}
 /* Card header actions: uniform square buttons that keep their aspect ratio, a
    sticky header so the close button stays reachable while the card scrolls,
