@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {alignWords, parseReference, verseReferences, schedule, mergeDecks, searchToc, normalizeWithSpans, featureTags, todayQueue, studyLimits, dayEnd, STUDY_LIMIT_DEFAULTS} from '../src/core.js';
+import {alignWords, parseReference, verseReferences, schedule, mergeDecks, searchToc, normalizeWithSpans, featureTags, todayQueue, studyLimits, dayEnd, dayStart, STUDY_LIMIT_DEFAULTS} from '../src/core.js';
 import {syncData} from '../scripts/sync-data.mjs';
 
 test('meaning references recognize verses and ranges while rejecting invalid Ayahs', () => {
@@ -79,13 +79,13 @@ test('today queue caps due reviews and new cards by the daily limits', () => {
     cards:['a1','a2','a3','a4','a5','a6','a7'],
     settings:{maxNew:2, maxReview:2},
     progress:{
-      a1:{due:now - 2*day, reviews:3},      // overdue review, oldest first
-      a2:{due:now, reviews:1},              // due now
-      a3:{due:now + 3600000, reviews:2},    // due later today
-      a4:{due:now + day, reviews:2},        // due tomorrow: excluded
-      a5:{due:end, reviews:4},              // last minute of today: included
-      a6:{due:now - day, reviews:0},        // never studied: new card
-      a7:{due:now - day, reviews:0}         // never studied: new card
+      a1:{due:now - 2*day, reviews:3, updatedAt:now - 5*day},      // overdue review, oldest first
+      a2:{due:now, reviews:1, updatedAt:now - day},               // due now
+      a3:{due:now + 3600000, reviews:2, updatedAt:now - 3600000}, // due later today
+      a4:{due:now + day, reviews:2, updatedAt:now - day},         // due tomorrow: excluded
+      a5:{due:end, reviews:4, updatedAt:now},                     // last minute of today: included
+      a6:{due:now - day, reviews:0},                              // never studied: new card
+      a7:{due:now - day, reviews:0}                               // never studied: new card
     }
   };
   // Review cap 2 keeps only the two oldest due reviews; new cap 2 keeps two new cards.
@@ -95,6 +95,50 @@ test('today queue caps due reviews and new cards by the daily limits', () => {
   assert.deepEqual(todayQueue(open, study.cards, now), ['a1','a2','a3','a5','a6','a7']);
   // Zero limits leave nothing to study today.
   assert.deepEqual(todayQueue({...study, settings:{maxNew:0, maxReview:0}}, study.cards, now), []);
+});
+test('studying a new card frees no slot for the next one until tomorrow', () => {
+  const now = Date.UTC(2026, 0, 15, 12), day = 86400000, start = dayStart(now);
+  const cards = ['n1','n2','n3','n4','n5'];
+  const progress = Object.fromEntries(cards.map(id => [id, {due:now - day, interval:0, ease:2.5, reviews:0}]));
+  const study = {cards, progress, settings:{maxNew:3, maxReview:3}};
+  // The limit applies to cards introduced today, not to cards still ungraded.
+  assert.deepEqual(todayQueue(study, cards, now), ['n1','n2','n3']);
+  // Grade n1 as Easy: it leaves today's queue and no fresh card slides in.
+  progress.n1 = schedule(progress.n1, 'easy', now);
+  assert.equal(progress.n1.introduced >= start, true);
+  assert.deepEqual(todayQueue({...study, progress}, cards, now), ['n2','n3']);
+  // Grade n2 and n3 too: nothing new is due today even though n4/n5 are unstudied.
+  progress.n2 = schedule(progress.n2, 'medium', now);
+  progress.n3 = schedule(progress.n3, 'difficult', now);
+  assert.deepEqual(todayQueue({...study, progress}, cards, now), []);
+  // A card graded Again returns within the day (due in 10 minutes) for rechecks.
+  progress.n2 = schedule(progress.n2, 'failed', now);
+  assert.deepEqual(todayQueue({...study, progress}, cards, now), ['n2']);
+  // Legacy progress without the introduced stamp falls back to updated-today:
+  // l1 (graded today) uses the allowance, l2 (graded earlier) does not, so only
+  // one fresh card remains. Overdue reviews l1/l2 are asked before it.
+  const legacy = {cards:['l1','l2','l3'], progress:{
+    l1:{due:now - day, reviews:1, updatedAt:now}, // graded earlier today
+    l2:{due:now - day, reviews:1, updatedAt:now - day}, // graded on an earlier day
+    l3:{due:now - day, reviews:0}
+  }, settings:{maxNew:2, maxReview:5}};
+  assert.deepEqual(todayQueue(legacy, legacy.cards, now), ['l1','l2','l3']);
+});
+test('the daily new-card allowance resets the next day', () => {
+  // Local times keep the day boundaries deterministic in every timezone.
+  const now = new Date(2026, 0, 15, 12).getTime(), day = 86400000;
+  const cards = ['n1','n2','n3','n4'];
+  const progress = {n1:{due:now - day, interval:0, ease:2.5, reviews:0},
+    n2:{due:now - day, interval:0, ease:2.5, reviews:0},
+    n3:{due:now - day, interval:0, ease:2.5, reviews:0},
+    n4:{due:now - day, interval:0, ease:2.5, reviews:0}};
+  const study = {cards, progress, settings:{maxNew:2, maxReview:5}};
+  progress.n1 = schedule(progress.n1, 'easy', now);
+  progress.n2 = schedule(progress.n2, 'easy', now);
+  assert.deepEqual(todayQueue(study, cards, now), []);
+  // Tomorrow the two remaining new cards fill the allowance again; n1/n2 are
+  // due on later days and stay out.
+  assert.deepEqual(todayQueue(study, cards, now + day), ['n3','n4']);
 });
 test('standalone build preserves public inputs and publishes only explained entries with valid TOC roots', async () => {
   await syncData({optional: true});
